@@ -36,6 +36,6 @@ export async function renderBand($: EngineInterface, e: any, next: (e: any) => a
 }
 
 export async function renderSpinner($: EngineInterface, e: any, next: (e: any) => any): Promise<any> {
-  const suffix = spinnerSuffix(await read($, agentsAtom))
+  const suffix = spinnerSuffix(await read($, agentsAtom), e.props.suffix)
   return next(suffix === undefined ? e : { ...e, props: { ...e.props, suffix } })
 }

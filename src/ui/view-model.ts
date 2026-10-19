@@ -59,7 +59,7 @@ export function caseDetail(self: SessionEntry, others: SessionEntry[]): string {
     case 'C':
       return `condiviso con ${c.sameBranch} ${c.sameBranch === 1 ? 'sessione' : 'sessioni'}`
     default:
-      return ''
+      return self.branch ?? ''
   }
 }
 
@@ -84,10 +84,10 @@ export function bandView(
   return { case: caseStyle(self, others), ...base, warning: first ? `⚠ ${first.path}` : undefined }
 }
 
-/** Spinner suffix for n active agents, or undefined when none run. */
-export function spinnerSuffix(tree: AgentTree): string | undefined {
+/** The engine's suffix with the active agent count appended, or undefined when none run. */
+export function spinnerSuffix(tree: AgentTree, base: string | undefined): string | undefined {
   const n = activeCount(tree)
-  return n > 0 ? `… · ${n} ${n === 1 ? 'agente' : 'agenti'}` : undefined
+  return n > 0 ? `${base ?? '…'} · ${n} ${n === 1 ? 'agente' : 'agenti'}` : undefined
 }
 
 export type AgentRow = {

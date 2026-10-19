@@ -1,7 +1,7 @@
 import { test, expect, mock } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { bandView, caseStyle } from '../src/ui/view-model'
+import { bandView, caseDetail, caseStyle } from '../src/ui/view-model'
 import type { PipelineState, SessionEntry } from '../src/core/types'
 
 const NOW = 1_000_000_000_000
@@ -33,6 +33,11 @@ test('bandView: piano vuoto ha percentuale 0, senza piano non c\'è nome', () =>
   expect(v.planPercent).toBe(0)
   expect(v.planName).toBe('p.md')
   expect(bandView({ self: me, others: [], pipeline: null }, NOW).planName).toBeUndefined()
+})
+
+test('caseDetail: nel caso none mostra il branch di self, se c\'è', () => {
+  expect(caseDetail(entry({ sessionId: 'me', branch: 'feat/x' }), [])).toBe('feat/x')
+  expect(caseDetail(entry({ sessionId: 'me', branch: null }), [])).toBe('')
 })
 
 test('bandView: avviso sul primo file scritto da due sessioni', () => {
@@ -127,7 +132,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-test('spinner: con 2 agenti attivi il suffisso li conta', async ($, on) => {
+test('spinner: con 2 agenti attivi il conteggio si accoda al suffisso dell\'engine', async ($, on) => {
   world(on)
   await start($)
   for (const n of ['1', '2']) {
@@ -136,8 +141,8 @@ test('spinner: con 2 agenti attivi il suffisso li conta', async ($, on) => {
       provider: { plugin: 'core', tier: 'core' }, parentModel: 'm', background: false, fork: false,
     } as never)
   }
-  const ui = await $.ui.mount({ plugin: 'overclock', surface: 'terminal', component: 'Spinner', props: spinner })
-  expect((await ui.find({ type: 'Text' }))?.text).toBe('… · 2 agenti')
+  const ui = await $.ui.mount({ plugin: 'overclock', surface: 'terminal', component: 'Spinner', props: { ...spinner, suffix: '(esc)' } })
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('(esc) · 2 agenti')
   await ui.unmount()
 })
 
