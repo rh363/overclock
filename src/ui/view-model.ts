@@ -4,7 +4,7 @@ import { basename } from '../core/paths'
 import { PHASE_NAMES } from '../core/phases'
 import { percent } from '../core/plan'
 import { classify, sharedWrites } from '../core/sessions'
-import type { AgentTree, PipelineState, SessionCase, SessionEntry } from '../core/types'
+import type { AgentStatus, AgentTree, BadgeName, PipelineState, SessionCase, SessionEntry } from '../core/types'
 
 export type CaseStyle = { kind: SessionCase; symbol: '⎇' | '▣' | '⇄' | ''; color: string; label: string }
 
@@ -83,4 +83,43 @@ export function bandView(
 export function spinnerSuffix(tree: AgentTree): string | undefined {
   const n = activeCount(tree)
   return n > 0 ? `… · ${n} ${n === 1 ? 'agente' : 'agenti'}` : undefined
+}
+
+export type AgentRow = {
+  id: string; parentId: string; label: string; status: AgentStatus
+  statusText: 'in corso' | 'completato' | 'fallito' | 'interrotto'; tokensText: string; detail?: string
+}
+
+const STATUS_TEXT = { running: 'in corso', done: 'completato', failed: 'fallito', aborted: 'interrotto' } as const
+
+function tokensText(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k tok` : `${n} tok`
+}
+
+export function agentsView(tree: AgentTree, _now: number): AgentRow[] {
+  return tree.nodes.map((n) => ({
+    id: n.id,
+    parentId: n.parentId,
+    label: n.type,
+    status: n.status,
+    statusText: STATUS_TEXT[n.status],
+    tokensText: tokensText(n.tokens.input + n.tokens.output),
+    detail: n.lastTool ?? (n.description !== '' ? n.description : undefined),
+  }))
+}
+
+export type PhaseRow = { n: number; name: string; state: 'done' | 'current' | 'todo'; enteredAt?: number; skill?: string }
+
+export function pipelineView(p: PipelineState): { phases: PhaseRow[]; badges: BadgeName[]; previousCycles: number } {
+  const cur = p.current
+  const phases = PHASE_NAMES.map((name, i): PhaseRow => {
+    const n = i + 1
+    const last = [...cur.history].reverse().find((h) => h.phase === n)
+    return {
+      n, name,
+      state: n < cur.phase ? 'done' : n === cur.phase ? 'current' : 'todo',
+      enteredAt: last?.at, skill: last?.skill,
+    }
+  })
+  return { phases, badges: cur.badges.map((b) => b.name), previousCycles: p.cycles.length }
 }

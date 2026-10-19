@@ -4,6 +4,7 @@ import {
   refreshGit, takeClearedId,
 } from '../src/app/runtime'
 import { renderBand, renderSpinner } from '../src/ui/band'
+import { renderPane } from '../src/ui/pane'
 
 const GIT_MOVE = /\bgit\s+(checkout|switch|worktree)\b/
 
@@ -130,6 +131,16 @@ export const register: Register = (on, options) => {
     } catch (err) {
       logError($, err)
       return next(e)
+    }
+  })
+
+  on('ui.render', { component: 'Pane', requestId: 'overclock' }, async ($, e) => {
+    try {
+      return await renderPane($, e)
+    } catch (err) {
+      logError($, err)
+      const { Text } = $.ui.resolve(e)
+      return <Text>Overclock: errore di disegno</Text>
     }
   })
 }
