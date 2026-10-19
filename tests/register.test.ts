@@ -18,6 +18,8 @@ type World = {
   toasts: string[]
   logs: string[]
   clock: ReturnType<typeof mock.clock>
+  // The test's engine, for a bottom that dispatches a nested event.
+  engine?: Engine
 }
 
 // Bottoms for everything the plugin calls. The store is answered here rather than by
@@ -59,7 +61,14 @@ function world(on: On, opts: { placed?: boolean } = {}): World {
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('skill.prompt', (_$, e) => ({ text: e.text }))
-  on('tool.call', () => ({ result: {} }))
+  // The Skill tool expands the skill's prompt while its call is in flight, as the engine does.
+  on('tool.call', async (_$, e) => {
+    if (e.tool === 'Skill' && w.engine) {
+      const [plugin, skill] = String((e as { skill?: unknown }).skill).split(':') as [string, string]
+      await w.engine.skill.prompt({ skill, text: '', pluginName: plugin })
+    }
+    return { result: {} }
+  })
   return w
 }
 
@@ -319,4 +328,19 @@ test('/resume senza classic.SessionStart: il primo evento azzera gli agenti', as
   await $.agent.spawn(spawnInput('2'))
   expect((w.state.get('self') as SessionEntry).sessionId).toBe('s2')
   expect(agents(w).nodes.map((n) => n.id)).toEqual(['a2'])
+})
+
+
+test('skill da un subagente: la fase della sessione non avanza, il badge sì', async ($, on) => {
+  const w = world(on)
+  w.engine = $
+  await startSession($)
+  await $.skill.prompt({ skill: 'subagent-driven-development', text: '', pluginName: 'superpowers' })
+  await $.agent.spawn(spawnInput('1'))
+  await $.tool.call({ tool: 'Skill', skill: 'superpowers:requesting-code-review', agentId: 'a1' } as never)
+  expect((w.state.get('pipeline') as PipelineState).current.phase).toBe(4)
+  await $.tool.call({ tool: 'Skill', skill: 'superpowers:test-driven-development', agentId: 'a1' } as never)
+  expect((w.state.get('pipeline') as PipelineState).current.badges.map((b) => b.name)).toEqual(['TDD'])
+  await $.tool.call({ tool: 'Skill', skill: 'superpowers:requesting-code-review' } as never)
+  expect((w.state.get('pipeline') as PipelineState).current.phase).toBe(5)
 })

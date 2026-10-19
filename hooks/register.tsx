@@ -1,7 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 import {
   carryOverOnClear, configure, dispatchAgent, endSession, guardRender, handleCommand, initSession, logError, maybeAutoOpen, onPaneClosed,
-  onSessionResumed, onSkill, onToolCall, onWrite, refreshGit, takeClearedId,
+  inSubagentSkill, onSessionResumed, onSkill, onToolCall, onWrite, refreshGit, takeClearedId,
 } from '../src/app/runtime'
 import { renderBand, renderSpinner } from '../src/ui/band'
 import { renderPane } from '../src/ui/pane'
@@ -79,7 +79,9 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', async ($, e, next) => {
-    const r = await next(e)
+    const r = e.tool === 'Skill' && e.agentId && typeof e.skill === 'string'
+      ? await inSubagentSkill(e.skill, () => next(e))
+      : await next(e)
     await safe($, async () => {
       await onToolCall($, e.agentId, e.tool)
       const ok = r.deny === undefined && !r.isError

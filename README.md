@@ -63,6 +63,10 @@ La mappa skill → fase (o badge) sta in `src/core/phases.ts` (`DEFAULT_PHASE_MA
 
 In alternativa, senza toccare il codice, l'opzione `phaseMapPath` (file JSON, path assoluto o relativo alla cartella della sessione) si unisce alla mappa predefinita: le sue voci si aggiungono a quelle predefinite e, a parità di chiave, le sostituiscono. Stesso formato: `{ "plugin:skill": { "phase": 1-6 } | { "badge": "TDD" | "Debug" | "Verifica" } }`.
 
+## Limiti
+
+- Una skill caricata da un subagente col tool Skill aggiunge il suo badge ma non fa avanzare la fase della sessione (`skill.prompt` non dice da quale agente arriva: Overclock la riconosce dalla chiamata Skill del subagente in corso). Una skill precaricata nel subagente dal suo frontmatter non passa dal tool Skill e conta ancora come skill della sessione.
+
 ## Test
 
 ```

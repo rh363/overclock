@@ -42,6 +42,21 @@ let clearedId: string | undefined
 // Id of the last session that ended (any reason): a later init under another id is a new
 // conversation, whose agents start from empty.
 let endedId: string | undefined
+// Skill tool calls in flight in a subagent's loop, by the name the call gave: skill.prompt
+// carries no agentId, but it fires while the Skill call that expands it is in flight.
+const subagentSkills = new Map<string, number>()
+
+/** Runs a subagent's Skill call, marking its skill as a subagent's while it is in flight. */
+export async function inSubagentSkill<R>(skill: string, call: () => Promise<R>): Promise<R> {
+  subagentSkills.set(skill, (subagentSkills.get(skill) ?? 0) + 1)
+  try {
+    return await call()
+  } finally {
+    const n = (subagentSkills.get(skill) ?? 1) - 1
+    if (n > 0) subagentSkills.set(skill, n)
+    else subagentSkills.delete(skill)
+  }
+}
 
 /** The id a /clear ended, if its carry-over is still pending; clears it. */
 export function takeClearedId(): string | undefined {
@@ -223,8 +238,13 @@ export async function onSkill($: EngineInterface, skill: string, pluginName?: st
   await ensureInit($)
   const now = await $.clock.now()
   const map = await loadPhaseMap($)
+  const key = skillKey(skill, pluginName)
+  // A subagent's skill (requesting-code-review inside subagent-driven) is not the session's
+  // phase: only its badge counts.
+  const entry = Object.hasOwn(map, key) ? map[key] : undefined
+  if (entry && 'phase' in entry && (subagentSkills.has(key) || subagentSkills.has(skill))) return
   const before = (await read($, pipelineAtom)) ?? emptyPipeline(now)
-  const after = applySkill(before, skillKey(skill, pluginName), map, now)
+  const after = applySkill(before, key, map, now)
   if (after === before) return
   await savePipeline($, after)
   await publishSelf($, undefined, { activity: true })
