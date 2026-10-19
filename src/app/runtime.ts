@@ -39,6 +39,9 @@ let phaseMap: PhaseMap | undefined
 let timer: Timer | undefined
 // Id of the session a /clear just ended, until its pipeline is carried over.
 let clearedId: string | undefined
+// Id of the last session that ended (any reason): a later init under another id is a new
+// conversation, whose agents start from empty.
+let endedId: string | undefined
 
 /** The id a /clear ended, if its carry-over is still pending; clears it. */
 export function takeClearedId(): string | undefined {
@@ -150,7 +153,11 @@ async function ensureInit($: EngineInterface): Promise<SessionEntry> {
   if (self && self.sessionId === id) return self
   const oldId = takeClearedId()
   if (oldId !== undefined && oldId !== id) await carryOverOnClear($, oldId)
-  else await initSession($)
+  else {
+    const prevId = self?.sessionId ?? endedId
+    if (prevId !== undefined && prevId !== id) await update($, agentsAtom, () => emptyTree())
+    await initSession($)
+  }
   return (await read($, selfAtom))!
 }
 
@@ -199,6 +206,17 @@ export async function dispatchAgent($: EngineInterface, ev: AgentEvent): Promise
   await ensureInit($)
   await update($, agentsAtom, (t) => reduceAgents(t, ev))
   await publishSelf($, undefined, { activity: ev.kind !== 'agents.reconcile' })
+}
+
+/**
+ * tool.call: in memory only (the subagent's last tool, self's lastActivity); the heartbeat
+ * publishes it. Keeps the store off the tool's return path.
+ */
+export async function onToolCall($: EngineInterface, agentId: string | undefined, tool: string): Promise<void> {
+  await ensureInit($)
+  const now = await $.clock.now()
+  if (agentId) await update($, agentsAtom, (t) => reduceAgents(t, { kind: 'agent.tool', id: agentId, tool }))
+  await update($, selfAtom, (s) => (s ? { ...s, lastActivity: now } : s))
 }
 
 export async function onSkill($: EngineInterface, skill: string, pluginName?: string): Promise<void> {
@@ -281,6 +299,7 @@ export async function maybeAutoOpen($: EngineInterface): Promise<void> {
  */
 export async function endSession($: EngineInterface, id: string, reason: string): Promise<void> {
   stopHeartbeat()
+  endedId = id
   if (reason === 'clear') clearedId = id
   await update($, selfAtom, () => null)
   await storePort($).deleteSession(id)
@@ -297,6 +316,16 @@ export async function carryOverOnClear($: EngineInterface, oldId: string): Promi
   }
   await update($, agentsAtom, () => emptyTree())
   await update($, selfAtom, () => null)
+  await initSession($)
+}
+
+/**
+ * classic.SessionStart other than startup or clear (a /resume in the same process): when
+ * session.end left self empty, start the new conversation from empty agents.
+ */
+export async function onSessionResumed($: EngineInterface): Promise<void> {
+  if (await read($, selfAtom)) return
+  await update($, agentsAtom, () => emptyTree())
   await initSession($)
 }
 

@@ -1,7 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 import {
-  carryOverOnClear, configure, dispatchAgent, endSession, handleCommand, initSession, logError, maybeAutoOpen, onPaneClosed, onSkill,
-  onWrite, refreshGit, takeClearedId,
+  carryOverOnClear, configure, dispatchAgent, endSession, handleCommand, initSession, logError, maybeAutoOpen, onPaneClosed,
+  onSessionResumed, onSkill, onToolCall, onWrite, refreshGit, takeClearedId,
 } from '../src/app/runtime'
 import { renderBand, renderSpinner } from '../src/ui/band'
 import { renderPane } from '../src/ui/pane'
@@ -81,7 +81,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const r = await next(e)
     await safe($, async () => {
-      if (e.agentId) await dispatchAgent($, { kind: 'agent.tool', id: e.agentId, tool: e.tool })
+      await onToolCall($, e.agentId, e.tool)
       const ok = r.deny === undefined && !r.isError
       if ((e.tool === 'Write' || e.tool === 'Edit') && ok && typeof e.file_path === 'string') {
         await onWrite($, e.file_path)
@@ -90,7 +90,8 @@ export const register: Register = (on, options) => {
         (e.tool === 'Bash' && typeof e.command === 'string' && GIT_MOVE.test(e.command)) ||
         e.tool === 'EnterWorktree' ||
         e.tool === 'ExitWorktree'
-      if (moved) await refreshGit($)
+      // A subagent's cwd is not the session's: only the main session moves branch or worktree.
+      if (moved && !e.agentId) await refreshGit($)
     })
     return r
   }).catch(passThrough)
@@ -110,8 +111,12 @@ export const register: Register = (on, options) => {
   on('classic.SessionStart', async ($, e, next) => {
     const r = await next(e)
     // An event since the /clear may already have done the carry-over (see ensureInit).
-    const oldId = e.source === 'clear' ? takeClearedId() : undefined
-    if (oldId !== undefined) await safe($, () => carryOverOnClear($, oldId))
+    if (e.source === 'clear') {
+      const oldId = takeClearedId()
+      if (oldId !== undefined) await safe($, () => carryOverOnClear($, oldId))
+    } else if (e.source !== 'startup') {
+      await safe($, () => onSessionResumed($))
+    }
     return r
   }).catch(passThrough)
 

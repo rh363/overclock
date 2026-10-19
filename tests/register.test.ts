@@ -14,6 +14,7 @@ type World = {
   sid: string
   live: AgentInfo[] | null
   opens: number
+  sets: string[]
   toasts: string[]
   logs: string[]
   clock: ReturnType<typeof mock.clock>
@@ -24,13 +25,13 @@ type World = {
 // to read what the plugin persisted. State writes are observed on their way down.
 function world(on: On, opts: { placed?: boolean } = {}): World {
   const w: World = {
-    store: new Map(), state: new Map(), sid: 's1', live: [], opens: 0, toasts: [], logs: [],
+    store: new Map(), state: new Map(), sid: 's1', live: [], opens: 0, sets: [], toasts: [], logs: [],
     files: { [`${ROOT}/.git/HEAD`]: 'ref: refs/heads/main\n' },
     dirs: { [`${ROOT}/.git`]: [] },
     clock: mock.clock(on, { now: NOW }),
   }
   on('store.get', (_$, e) => ({ value: w.store.get(e.key) }))
-  on('store.set', (_$, e) => { w.store.set(e.key, JSON.parse(JSON.stringify(e.value))); return { value: undefined } })
+  on('store.set', (_$, e) => { w.sets.push(e.key); w.store.set(e.key, JSON.parse(JSON.stringify(e.value))); return { value: undefined } })
   on('store.delete', (_$, e) => { w.store.delete(e.key); return { value: undefined } })
   on('store.keys', () => ({ value: [...w.store.keys()] }))
   on('state.set', async (_$, e, next) => { w.state.set(e.key, e.value); return next(e) })
@@ -254,4 +255,68 @@ test('avvio: pota le pipeline vecchie una volta sola, non a ogni heartbeat', asy
   w.store.set('pipeline:old2', { ...old, updatedAt: NOW - 31 * 86_400_000 })
   await w.clock.advance(15_000)
   expect(w.store.has('pipeline:old2')).toBe(true)
+})
+
+test('git da un subagente non cambia branch e worktree della sessione', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.agent.spawn(spawnInput('1'))
+  w.files[`${ROOT}/.git/HEAD`] = 'ref: refs/heads/x\n'
+  await $.tool.call({ tool: 'Bash', command: 'git switch x', agentId: 'a1' } as never)
+  expect((w.state.get('self') as SessionEntry).branch).toBe('main')
+  await $.tool.call({ tool: 'Bash', command: 'git switch x' } as never)
+  expect((w.state.get('self') as SessionEntry).branch).toBe('x')
+})
+
+test('tool call: nessuna scrittura nello store, la pubblica l\'heartbeat', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.agent.spawn(spawnInput('1'))
+  await w.clock.advance(5_000)
+  w.live = [{ id: 'a1', status: 'running' } as AgentInfo]
+  w.sets.length = 0
+  for (const tool of ['Read', 'Grep', 'Glob']) await $.tool.call({ tool, agentId: 'a1' } as never)
+  await $.tool.call({ tool: 'Read' } as never)
+  expect(w.sets).toEqual([])
+  expect(agents(w).nodes[0]?.lastTool).toBe('Glob')
+  await w.clock.advance(10_000)
+  const entry = w.store.get('session:s1') as SessionEntry
+  expect(entry.agents[0]?.lastTool).toBe('Glob')
+  expect(entry.lastActivity).toBe(NOW + 5_000)
+  expect(entry.heartbeat).toBe(NOW + 15_000)
+})
+
+test('tool call della sessione principale: aggiorna lastActivity', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await w.clock.advance(5_000)
+  await $.tool.call({ tool: 'Read' } as never)
+  expect((w.state.get('self') as SessionEntry).lastActivity).toBe(NOW + 5_000)
+})
+
+test('/resume nello stesso processo: self ripubblicato col nuovo id, agenti azzerati', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.agent.spawn(spawnInput('1'))
+  await $.session.end({ reason: 'resume', sessionId: 's1', resume: { id: 's1' } } as never)
+  expect(w.store.has('session:s1')).toBe(false)
+  w.sid = 's2'
+  await $.classic.SessionStart({ source: 'resume', session_id: 's2' } as never)
+  expect((w.state.get('self') as SessionEntry).sessionId).toBe('s2')
+  expect((w.store.get('session:s2') as SessionEntry).sessionId).toBe('s2')
+  expect(agents(w).nodes).toEqual([])
+  await w.clock.advance(15_000)
+  expect((w.store.get('session:s2') as SessionEntry).heartbeat).toBe(NOW + 15_000)
+  expect(w.logs).toEqual([])
+})
+
+test('/resume senza classic.SessionStart: il primo evento azzera gli agenti', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.agent.spawn(spawnInput('1'))
+  await $.session.end({ reason: 'resume', sessionId: 's1', resume: { id: 's1' } } as never)
+  w.sid = 's2'
+  await $.agent.spawn(spawnInput('2'))
+  expect((w.state.get('self') as SessionEntry).sessionId).toBe('s2')
+  expect(agents(w).nodes.map((n) => n.id)).toEqual(['a2'])
 })
