@@ -17,7 +17,8 @@ export type AgentEvent =
   | { kind: 'agent.ended'; id: string; reason: TurnReason; usage?: Usage; at: number }
   | { kind: 'agent.tool'; id: string; tool: string }
   | { kind: 'main.turn'; usage?: Usage }
-  | { kind: 'agents.reconcile'; liveIds: string[]; at: number }
+  // teammateIds: the live ones that are teammates, whose loop outlives a turn.
+  | { kind: 'agents.reconcile'; liveIds: string[]; teammateIds?: string[]; at: number }
 
 export type Phase = 0 | 1 | 2 | 3 | 4 | 5 | 6
 export type BadgeName = 'TDD' | 'Debug' | 'Verifica'

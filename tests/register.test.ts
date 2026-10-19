@@ -344,3 +344,16 @@ test('skill da un subagente: la fase della sessione non avanza, il badge sì', a
   await $.tool.call({ tool: 'Skill', skill: 'superpowers:requesting-code-review' } as never)
   expect((w.state.get('pipeline') as PipelineState).current.phase).toBe(5)
 })
+
+test('teammate: resta vivo dopo un turno finché il roster lo elenca', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.agent.spawn(spawnInput('1'))
+  await $.turn.complete(complete('a1'))
+  w.live = [{ id: 'a1', teammateId: 'x@team', status: 'idle' } as AgentInfo]
+  await w.clock.advance(15_000)
+  expect(agents(w).nodes[0]?.status).toBe('running')
+  w.live = []
+  await w.clock.advance(15_000)
+  expect(agents(w).nodes[0]?.status).toBe('done')
+})

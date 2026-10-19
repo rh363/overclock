@@ -77,10 +77,15 @@ export function reduceAgents(tree: AgentTree, ev: AgentEvent): AgentTree {
     case 'main.turn':
       return { ...tree, mainTokens: addUsage(tree.mainTokens, ev.usage) }
     case 'agents.reconcile': {
+      // A running node the list no longer has is done; an ended teammate the roster still
+      // lists (idle between turns) is alive again.
       const live = new Set(ev.liveIds)
-      if (!tree.nodes.some((n) => n.status === 'running' && !live.has(n.id))) return tree
-      const nodes = tree.nodes.map((n) =>
-        n.status === 'running' && !live.has(n.id) ? { ...n, status: 'done' as const, endedAt: ev.at } : n,
+      const mates = new Set(ev.teammateIds ?? [])
+      const ended = (n: AgentNode) => n.status === 'running' && !live.has(n.id)
+      const revived = (n: AgentNode) => n.status !== 'running' && mates.has(n.id)
+      if (!tree.nodes.some((n) => ended(n) || revived(n))) return tree
+      const nodes = tree.nodes.map((n): AgentNode =>
+        ended(n) ? { ...n, status: 'done', endedAt: ev.at } : revived(n) ? { ...n, status: 'running', endedAt: undefined } : n,
       )
       return { ...tree, nodes: prune(nodes) }
     }

@@ -92,3 +92,14 @@ test('i token includono lettura e creazione della cache', async () => {
   t = reduceAgents(t, { kind: 'main.turn', usage: u })
   expect(t.mainTokens).toEqual({ input: 1110, output: 5 })
 })
+
+test('reconcile riporta a running un teammate concluso che il roster elenca ancora', async () => {
+  let t = reduceAgents(emptyTree(), start('a'))
+  t = reduceAgents(t, start('b'))
+  t = reduceAgents(t, { kind: 'agent.ended', id: 'a', reason: 'answer', usage, at: 5 })
+  t = reduceAgents(t, { kind: 'agent.ended', id: 'b', reason: 'answer', usage, at: 5 })
+  t = reduceAgents(t, { kind: 'agents.reconcile', liveIds: ['a', 'b'], teammateIds: ['a'], at: 9 })
+  expect(t.nodes[0]!.status).toBe('running')
+  expect(t.nodes[0]!.endedAt).toBe(undefined)
+  expect(t.nodes[1]!.status).toBe('done')
+})
