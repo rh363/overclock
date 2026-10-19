@@ -12,7 +12,7 @@ type World = {
   files: Record<string, string>
   dirs: Record<string, { name: string; kind: 'file' | 'dir'; mtimeMs: number }[]>
   sid: string
-  live: AgentInfo[]
+  live: AgentInfo[] | null
   opens: number
   toasts: string[]
   logs: string[]
@@ -42,7 +42,7 @@ function world(on: On, opts: { placed?: boolean } = {}): World {
     const d = w.dirs[e.path]
     return d ? { value: d.map((x) => ({ ...x, size: 0, isLink: false })) } : { deny: 'ENOENT' }
   })
-  on('agent.list', () => ({ value: w.live }))
+  on('agent.list', () => (w.live ? { value: w.live } : { deny: 'agent.list non disponibile' }))
   on('ui.open', () => {
     w.opens++
     const r: UiOpenResult = opts.placed === false ? { isPlaced: false, reason: 'narrow' } : { isPlaced: true }
@@ -198,4 +198,31 @@ test('phaseMapPath non valida: una riga di log, poi la mappa predefinita', { opt
   await $.skill.prompt({ skill: 'brainstorming', text: '', pluginName: 'superpowers' })
   expect(w.logs.length).toBe(1)
   expect((w.state.get('pipeline') as PipelineState).current.phase).toBe(1)
+})
+
+test('/clear senza classic.SessionStart: il primo evento porta la sessione sul nuovo id', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  await $.skill.prompt({ skill: 'writing-plans', text: '', pluginName: 'superpowers' })
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+  w.sid = 's2'
+  await $.agent.spawn(spawnInput('1'))
+  expect((w.store.get('pipeline:s2') as PipelineState).current.phase).toBe(3)
+  expect(w.store.has('pipeline:s1')).toBe(false)
+  expect(w.store.has('session:s1')).toBe(false)
+  expect((w.state.get('self') as SessionEntry).sessionId).toBe('s2')
+  expect(agents(w).nodes.map((n) => n.id)).toEqual(['a1'])
+  await w.clock.advance(15_000)
+  expect((w.store.get('session:s2') as SessionEntry).heartbeat).toBe(NOW + 15_000)
+  expect(w.store.has('session:s1')).toBe(false)
+  expect(w.logs).toEqual([])
+})
+
+test('heartbeat fallito: una riga di log, non un errore muto', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  w.live = null
+  await w.clock.advance(15_000)
+  expect(w.logs.length).toBe(1)
+  expect(w.logs[0]).toContain('overclock:')
 })

@@ -13,8 +13,8 @@ import type { FilePort } from '../ports'
 import { storePort } from '../adapters/store'
 import { filePort, resolveGitInfo } from '../adapters/files'
 
-// The host's module scan only accepts state sources declared in the calling file, so these
-// mirror src/adapters/atoms.ts (same keys, same initial values).
+// One atom per key of PluginState['overclock']. The host's module scan only accepts state
+// sources declared in the calling file, so every module that reads state declares its own.
 const agentsAtom = atom({ plugin: 'overclock', key: 'agents' } as const, emptyTree())
 const pipelineAtom = atom({ plugin: 'overclock', key: 'pipeline' } as const, null)
 const selfAtom = atom({ plugin: 'overclock', key: 'self' } as const, null)
@@ -33,6 +33,15 @@ const ENDED = new Set(['completed', 'failed', 'killed'])
 let phaseMapPath = ''
 let phaseMap: PhaseMap | undefined
 let timer: Timer | undefined
+// Id of the session a /clear just ended, until its pipeline is carried over.
+let clearedId: string | undefined
+
+/** The id a /clear ended, if its carry-over is still pending; clears it. */
+export function takeClearedId(): string | undefined {
+  const id = clearedId
+  clearedId = undefined
+  return id
+}
 
 /** Called by register() on every (re)load with the plugin's options. */
 export function configure(options: PluginOptions): void {
@@ -114,17 +123,33 @@ async function detectDocs($: EngineInterface, fp: FilePort, root: string, p: Pip
   return loadPlan($, fp, root, { ...p, plan })
 }
 
+/** Reports a failure of Overclock's own work without letting it reach the event chain. */
+export function logError($: EngineInterface, err: unknown): void {
+  try {
+    $.ui.log(`overclock: ${err instanceof Error ? err.message : String(err)}`, { to: 'debug' })
+  } catch {
+    // nothing left to report to
+  }
+}
+
+/**
+ * Self for the current session id. Re-initialises when self is missing or belongs to another
+ * id (a /clear whose classic.SessionStart never came), carrying the pipeline over first.
+ */
 async function ensureInit($: EngineInterface): Promise<SessionEntry> {
+  const id = await $.session.id()
   const self = await read($, selfAtom)
-  if (self) return self
-  await initSession($)
+  if (self && self.sessionId === id) return self
+  const oldId = takeClearedId()
+  if (oldId !== undefined && oldId !== id) await carryOverOnClear($, oldId)
+  else await initSession($)
   return (await read($, selfAtom))!
 }
 
 function startHeartbeat($: EngineInterface): void {
   timer?.cancel()
   timer = $.clock.every(HEARTBEAT_MS, () => {
-    void heartbeat($).catch(() => {})
+    void heartbeat($).catch((err: unknown) => logError($, err))
   })
 }
 
@@ -239,9 +264,14 @@ export async function maybeAutoOpen($: EngineInterface): Promise<void> {
   }
 }
 
-/** session.end: drop this session's entry and stop the heartbeat that would rewrite it. */
-export async function endSession($: EngineInterface, id: string): Promise<void> {
+/**
+ * session.end: drop this session's entry, stop the heartbeat that would rewrite it and forget
+ * self, so the next event re-initialises. After /clear, remember the id for the carry-over.
+ */
+export async function endSession($: EngineInterface, id: string, reason: string): Promise<void> {
   stopHeartbeat()
+  if (reason === 'clear') clearedId = id
+  await update($, selfAtom, () => null)
   await storePort($).deleteSession(id)
 }
 

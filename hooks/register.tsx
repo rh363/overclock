@@ -1,6 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 import {
-  carryOverOnClear, configure, dispatchAgent, endSession, initSession, maybeAutoOpen, onSkill, onWrite, refreshGit,
+  carryOverOnClear, configure, dispatchAgent, endSession, initSession, logError, maybeAutoOpen, onSkill, onWrite,
+  refreshGit, takeClearedId,
 } from '../src/app/runtime'
 
 const GIT_MOVE = /\bgit\s+(checkout|switch|worktree)\b/
@@ -10,20 +11,13 @@ async function safe($: EngineInterface, work: () => Promise<void>): Promise<void
   try {
     await work()
   } catch (err) {
-    try {
-      $.ui.log(`overclock: ${err instanceof Error ? err.message : String(err)}`, { to: 'debug' })
-    } catch {
-      // nothing left to report to
-    }
+    logError($, err)
   }
 }
 
 // Events that can gate (deny, block): if a hook of ours ever fails, the event goes on as if
 // we were not there. `next` is replay-safe inside a catch.
 const passThrough = <E, R>(_$: unknown, e: E, next: (e: E) => R): R => next(e)
-
-// Id of the session a /clear just ended; lost on hot reload, which is harmless.
-let clearedId: string | undefined
 
 export const register: Register = (on, options) => {
   configure(options)
@@ -107,20 +101,15 @@ export const register: Register = (on, options) => {
   })
 
   on('session.end', async ($, e, next) => {
-    await safe($, async () => {
-      if (e.reason === 'clear') clearedId = e.sessionId
-      await endSession($, e.sessionId)
-    })
+    await safe($, () => endSession($, e.sessionId, e.reason))
     return next(e)
   })
 
   on('classic.SessionStart', async ($, e, next) => {
     const r = await next(e)
-    const oldId = clearedId
-    if (e.source === 'clear' && oldId !== undefined) {
-      clearedId = undefined
-      await safe($, () => carryOverOnClear($, oldId))
-    }
+    // An event since the /clear may already have done the carry-over (see ensureInit).
+    const oldId = e.source === 'clear' ? takeClearedId() : undefined
+    if (oldId !== undefined) await safe($, () => carryOverOnClear($, oldId))
     return r
   }).catch(passThrough)
 }

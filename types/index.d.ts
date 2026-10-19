@@ -1,5 +1,5 @@
 // Self-contained state contract (no imports allowed). These shapes mirror src/core/types.ts
-// and Tab in src/core/commands.ts; adapters/atoms.ts is type-checked against them.
+// and Tab in src/core/commands.ts; the atoms declared in each module are type-checked against them.
 export type OcTokens = { input: number; output: number }
 export type OcAgentNode = {
   id: string; parentId: string; toolUseId: string; type: string; description: string
