@@ -31,4 +31,5 @@ test('parseHead', async () => {
 test('repoRootFromGitDir', async () => {
   expect(repoRootFromGitDir('/r/.git/worktrees/wt')).toBe('/r')
   expect(repoRootFromGitDir('/r/.git')).toBe('/r')
+  expect(repoRootFromGitDir('/home/u/worktrees/.git')).toBe('/home/u/worktrees')
 })

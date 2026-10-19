@@ -21,6 +21,6 @@ export function parseHead(content: string): string {
 export function repoRootFromGitDir(gitDir: string): string {
   let d = gitDir
   const parent = dirname(d)
-  if (basename(parent) === 'worktrees') d = dirname(parent)
+  if (basename(parent) === 'worktrees' && basename(dirname(parent)) === '.git') d = dirname(parent)
   return dirname(d)
 }
