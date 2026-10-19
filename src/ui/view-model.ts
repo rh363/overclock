@@ -3,8 +3,9 @@ import { activeCount } from '../core/agents'
 import { basename } from '../core/paths'
 import { PHASE_NAMES } from '../core/phases'
 import { percent } from '../core/plan'
-import { classify, sharedWrites } from '../core/sessions'
-import type { AgentStatus, AgentTree, BadgeName, PipelineState, SessionCase, SessionEntry } from '../core/types'
+import { classify, groupSessions, sharedWrites } from '../core/sessions'
+import type { SessionGroup } from '../core/sessions'
+import type { AgentNode, AgentStatus, AgentTree, BadgeName, PipelineState, SessionCase, SessionEntry, Tokens } from '../core/types'
 
 export type CaseStyle = { kind: SessionCase; symbol: '⎇' | '▣' | '⇄' | ''; color: string; label: string }
 
@@ -122,4 +123,87 @@ export function pipelineView(p: PipelineState): { phases: PhaseRow[]; badges: Ba
     }
   })
   return { phases, badges: cur.badges.map((b) => b.name), previousCycles: p.cycles.length }
+}
+
+export type SessionWarning = { path: string; text: string }
+export type SessionsView = { summary: string; groups: SessionGroup[]; warnings: SessionWarning[] }
+type GroupedSession = SessionGroup['branches'][number]['sessions'][number]
+
+const sumTokens = (t: Tokens) => t.input + t.output
+
+/** Token count as `142k` / `850` (summary) or with one decimal below 100k when `fine` is set. */
+export function formatTokens(n: number, fine = false): string {
+  if (n < 1000) return String(n)
+  return fine ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n / 1000)}k`
+}
+
+/** The agents a session shows: running ones, plus the last finished one for the own session. */
+export function shownAgents(s: { agents: AgentNode[]; isSelf: boolean }): AgentNode[] {
+  const running = s.agents.filter((a) => a.status === 'running')
+  if (!s.isSelf) return running
+  let last: AgentNode | undefined
+  for (const a of s.agents) {
+    if (a.status !== 'running' && (!last || (a.endedAt ?? 0) >= (last.endedAt ?? 0))) last = a
+  }
+  return last ? [...running, last] : running
+}
+
+/** `branch` for A/B (repo name when detached or out of git), `sessione <4 chars>` for C. */
+export function sessionLabel(s: SessionEntry, kind: SessionCase): string {
+  return kind === 'C' ? `sessione ${s.sessionId.slice(0, 4)}` : (s.branch ?? s.repoName)
+}
+
+export function sessionsView(self: SessionEntry, others: SessionEntry[], now: number, mainTokens?: Tokens): SessionsView {
+  const groups = groupSessions([self, ...others], self.sessionId, now)
+  const midnight = new Date(now).setHours(0, 0, 0, 0)
+  const live = [self, ...others]
+  let tokens = mainTokens ? sumTokens(mainTokens) : 0
+  let running = 0
+  for (const s of live) {
+    for (const a of s.agents) {
+      if (a.status === 'running') running++
+      if (a.startedAt >= midnight) tokens += sumTokens(a.tokens)
+    }
+  }
+  const warnings = sharedWrites(self, others, now).map((w) => ({
+    path: w.path,
+    text: `⚠ ${w.path} scritto da entrambe ${Math.floor((now - w.at) / 60_000)}m fa`,
+  }))
+  return {
+    summary: `${live.length} sessioni vive · ${running} agenti attivi · ${formatTokens(tokens)} token oggi`,
+    groups,
+    warnings,
+  }
+}
+
+export function groupHeader(g: SessionGroup): string {
+  const n = g.branches.reduce((a, b) => a + b.sessions.length, 0)
+  if (g.kind === 'C') {
+    const shared = g.branches.find((b) => b.sessions.length >= 2)
+    return `⇄ ${g.repoName} @ ${shared?.branch ?? '(detached)'} · ${n} sessioni sullo stesso branch`
+  }
+  if (g.kind === 'A') return `⎇ ${g.repoName} · ${g.branches.length} worktree`
+  return `▣ ${g.repoName}`
+}
+
+export type SessionCard = {
+  id: string; label: string; color: string; isSelf: boolean; isIdle: boolean
+  meta: string; planPercent: number; planTotal: number
+  agents: { id: string; label: string; tokensText: string; status: AgentStatus }[]
+}
+
+export function sessionCard(s: GroupedSession, kind: SessionCase, now: number): SessionCard {
+  const color = kind === 'A' ? GREEN : kind === 'B' ? BLUE : kind === 'C' ? ORANGE : GREY
+  const parts = [s.phase > 0 ? `${PHASE_NAMES[s.phase - 1]} ${s.phase}/${PHASE_NAMES.length}` : '—']
+  if (s.planTotal > 0) parts.push(`Piano ${s.planDone}/${s.planTotal}`)
+  for (const b of s.badges) parts.push(`[${b}]`)
+  if (s.isIdle) parts.push(`inattiva da ${Math.floor((now - s.lastActivity) / 60_000)} min`)
+  return {
+    id: s.sessionId, label: sessionLabel(s, kind), color, isSelf: s.isSelf, isIdle: s.isIdle,
+    meta: parts.join(' · '), planPercent: percent(s.planDone, s.planTotal), planTotal: s.planTotal,
+    agents: shownAgents(s).map((a) => ({
+      id: a.id, label: a.description !== '' ? `${a.type} · ${a.description}` : a.type,
+      tokensText: formatTokens(sumTokens(a.tokens), true), status: a.status,
+    })),
+  }
 }

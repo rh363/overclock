@@ -8,7 +8,9 @@ import { PHASE_NAMES } from '../core/phases'
 import type { SessionEntry } from '../core/types'
 import { GraphText } from './graph-text'
 import { agentGraphSvg } from './graph-svg'
-import { agentsView, caseStyle, pipelineView } from './view-model'
+import { SessionsCards } from './sessions-cards'
+import { SessionsText } from './sessions-text'
+import { agentsView, caseStyle, pipelineView, sessionsView } from './view-model'
 
 // Atoms are declared here: the host refuses state sources declared in another file.
 const tabAtom = atom({ plugin: 'overclock', key: 'tab' } as const, 'agents')
@@ -100,12 +102,13 @@ export async function renderPane($: EngineInterface, e: any): Promise<any> {
         </Box>
       )
   } else if (tab === 'sessions') {
-    const list = (others as SessionEntry[]).map((s) => sessionLine(s, self))
-    body = (
-      <Box flexDirection="column">
-        {list.length === 0 ? <Text dimColor>Nessun'altra sessione attiva</Text> : list.map((l, i) => <Text key={`s${i}`}>{l}</Text>)}
-      </Box>
-    )
+    if (self === null) {
+      body = <Text dimColor>Nessuna sessione attiva</Text>
+    } else {
+      // The own agents come from the live tree, not from the last published entry.
+      const view = sessionsView({ ...(self as SessionEntry), agents: tree.nodes }, others as SessionEntry[], now, tree.mainTokens)
+      body = hasSvg ? SessionsCards({ view, now, Box, Text }) : SessionsText({ view, now, Box, Text })
+    }
   } else {
     const nodes = agentsView(tree, now)
     const lines = (others as SessionEntry[]).map((s) => sessionLine(s, self))

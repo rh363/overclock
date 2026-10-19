@@ -156,7 +156,7 @@ test('tab: pipeline, poi agenti e sessioni', async ($, on) => {
   expect(await ui.find({ key: 'phase-1' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /implementer/ })).toBeDefined()
   await ui.press({ key: 'tab-sessions' })
-  expect(await ui.find({ type: 'Text', text: /implementer/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'Sessione main' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /feat\/other/ })).toBeDefined()
   await ui.unmount()
 })
