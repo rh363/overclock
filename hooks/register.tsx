@@ -3,6 +3,7 @@ import {
   carryOverOnClear, configure, dispatchAgent, endSession, initSession, logError, maybeAutoOpen, onSkill, onWrite,
   refreshGit, takeClearedId,
 } from '../src/app/runtime'
+import { renderBand, renderSpinner } from '../src/ui/band'
 
 const GIT_MOVE = /\bgit\s+(checkout|switch|worktree)\b/
 
@@ -112,4 +113,23 @@ export const register: Register = (on, options) => {
     if (oldId !== undefined) await safe($, () => carryOverOnClear($, oldId))
     return r
   }).catch(passThrough)
+
+  // A render failure of ours falls back to the engine's own band and spinner.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    try {
+      return await renderBand($, e, next)
+    } catch (err) {
+      logError($, err)
+      return next(e)
+    }
+  })
+
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    try {
+      return await renderSpinner($, e, next)
+    } catch (err) {
+      logError($, err)
+      return next(e)
+    }
+  })
 }
