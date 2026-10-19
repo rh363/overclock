@@ -90,3 +90,17 @@ test('resolveGitInfo: normal checkout', async () => {
 test('resolveGitInfo: outside git is null', async () => {
   expect(await git({}, '/tmp/x')).toBeNull()
 })
+
+test('getPipeline: un valore malformato dà undefined', async () => {
+  const store = new Map<string, unknown>([
+    ['pipeline:a', { current: { phase: 'x' }, cycles: [], plan: {} }],
+    ['pipeline:b', { current: { phase: 1 }, cycles: {}, plan: {} }],
+    ['pipeline:c', { current: { phase: 1 }, cycles: [], plan: null }],
+    ['pipeline:d', { current: null, cycles: [], plan: {} }],
+    ['pipeline:e', 'oops'],
+  ])
+  const port = storePort(fakeEngine(store))
+  for (const id of ['a', 'b', 'c', 'd', 'e']) expect(await port.getPipeline(id)).toBeUndefined()
+  store.set('pipeline:ok', pipe(NOW))
+  expect(await port.getPipeline('ok')).toEqual(pipe(NOW))
+})

@@ -1,6 +1,7 @@
 import type { Phase, PhaseMap, PipelineCycle, PipelineState } from './types'
 
 export const MAX_CYCLES = 10
+export const MAX_HISTORY = 50
 
 const emptyCycle = (): PipelineCycle => ({ phase: 0, history: [], badges: [] })
 
@@ -8,8 +9,12 @@ export function emptyPipeline(at: number): PipelineState {
   return { current: emptyCycle(), cycles: [], plan: { pinned: { spec: false, plan: false }, done: 0, total: 0 }, updatedAt: at }
 }
 
+// Keeps the MAX_HISTORY most recent entries of a cycle's history.
+const capped = <T>(h: T[]): T[] => (h.length > MAX_HISTORY ? h.slice(-MAX_HISTORY) : h)
+
 export function applySkill(p: PipelineState, key: string, map: PhaseMap, at: number): PipelineState {
-  const entry = map[key]
+  // Own keys only: 'constructor' or 'toString' are not skills.
+  const entry = Object.hasOwn(map, key) ? map[key] : undefined
   if (!entry) return p
   const cur = p.current
   if ('badge' in entry) {
@@ -24,10 +29,10 @@ export function applySkill(p: PipelineState, key: string, map: PhaseMap, at: num
     return { ...p, cycles, current: { phase: 1, history: [hist], badges: [] }, updatedAt: at }
   }
   if (phase > cur.phase) {
-    return { ...p, current: { phase, history: [...cur.history, hist], badges: [] }, updatedAt: at }
+    return { ...p, current: { phase, history: capped([...cur.history, hist]), badges: [] }, updatedAt: at }
   }
   // Never go back: record the skill only.
-  return { ...p, current: { ...cur, history: [...cur.history, hist] }, updatedAt: at }
+  return { ...p, current: { ...cur, history: capped([...cur.history, hist]) }, updatedAt: at }
 }
 
 export function setPhase(p: PipelineState, phase: Phase, at: number): PipelineState {
@@ -35,7 +40,7 @@ export function setPhase(p: PipelineState, phase: Phase, at: number): PipelineSt
   const hist = { phase, skill: '/overclock phase', at }
   return {
     ...p,
-    current: { phase, history: [...cur.history, hist], badges: phase === cur.phase ? cur.badges : [] },
+    current: { phase, history: capped([...cur.history, hist]), badges: phase === cur.phase ? cur.badges : [] },
     updatedAt: at,
   }
 }

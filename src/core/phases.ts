@@ -26,6 +26,11 @@ export function skillKey(skill: string, pluginName?: string): string {
 
 const BADGES: readonly string[] = ['TDD', 'Debug', 'Verifica'] satisfies BadgeName[]
 
+// An own data property even for '__proto__', which plain assignment would turn into the prototype.
+function set(map: PhaseMap, key: string, v: PhaseMap[string]): void {
+  Object.defineProperty(map, key, { value: v, enumerable: true, writable: true, configurable: true })
+}
+
 export function parsePhaseMap(json: string): PhaseMap | null {
   let raw: unknown
   try { raw = JSON.parse(json) } catch { return null }
@@ -35,9 +40,9 @@ export function parsePhaseMap(json: string): PhaseMap | null {
     if (typeof v !== 'object' || v === null) return null
     const o = v as { phase?: unknown; badge?: unknown }
     if (typeof o.phase === 'number' && Number.isInteger(o.phase) && o.phase >= 1 && o.phase <= 6) {
-      out[key] = { phase: o.phase as Phase }
+      set(out, key, { phase: o.phase as Phase })
     } else if (typeof o.badge === 'string' && BADGES.includes(o.badge)) {
-      out[key] = { badge: o.badge as BadgeName }
+      set(out, key, { badge: o.badge as BadgeName })
     } else return null
   }
   return out

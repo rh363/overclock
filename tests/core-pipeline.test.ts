@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 import { DEFAULT_PHASE_MAP, PHASE_NAMES, skillKey, parsePhaseMap } from '../src/core/phases'
-import { emptyPipeline, applySkill, setPhase, resetPipeline, MAX_CYCLES } from '../src/core/pipeline'
+import { emptyPipeline, applySkill, setPhase, resetPipeline, MAX_CYCLES, MAX_HISTORY } from '../src/core/pipeline'
 import type { Phase } from '../src/core/types'
 
 const M = DEFAULT_PHASE_MAP
@@ -82,4 +82,27 @@ test('parsePhaseMap', async () => {
   expect(parsePhaseMap('{"x":{"phase":9}}')).toBe(null)
   expect(parsePhaseMap('{"x":{"badge":"Foo"}}')).toBe(null)
   expect(parsePhaseMap('not json')).toBe(null)
+})
+
+test('cronologia limitata alle ultime 50 voci', async () => {
+  expect(MAX_HISTORY).toBe(50)
+  let p = at(4)
+  for (let i = 0; i < 60; i++) p = applySkill(p, 'superpowers:writing-plans', M, 100 + i)
+  expect(p.current.history.length).toBe(50)
+  expect(p.current.history[49]?.at).toBe(159)
+  for (let i = 0; i < 3; i++) p = setPhase(p, 4, 200 + i)
+  expect(p.current.history.length).toBe(50)
+  expect(p.current.history[49]?.at).toBe(202)
+})
+
+test('proprietà ereditate non sono skill mappate', async () => {
+  const p = emptyPipeline(0)
+  expect(applySkill(p, 'constructor', M, 5)).toBe(p)
+  expect(applySkill(p, 'toString', M, 5)).toBe(p)
+  const parsed = parsePhaseMap('{"__proto__":{"phase":3},"x:y":{"badge":"TDD"}}')!
+  expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype)
+  expect(Object.hasOwn(parsed, '__proto__')).toBe(true)
+  const merged = { ...M, ...parsed }
+  expect(applySkill(p, '__proto__', merged, 5).current.phase).toBe(3)
+  expect(applySkill(p, 'constructor', merged, 5)).toBe(p)
 })

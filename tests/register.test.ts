@@ -226,3 +226,12 @@ test('heartbeat fallito: una riga di log, non un errore muto', async ($, on) => 
   expect(w.logs.length).toBe(1)
   expect(w.logs[0]).toContain('overclock:')
 })
+
+test('pipeline malformata nello store: initSession riparte da una vuota', async ($, on) => {
+  const w = world(on)
+  w.store.set('pipeline:s1', { current: { phase: 'x' }, cycles: [], plan: {} })
+  await startSession($)
+  expect((w.state.get('self') as SessionEntry).sessionId).toBe('s1')
+  expect((w.state.get('pipeline') as PipelineState).current.phase).toBe(0)
+  expect(w.logs).toEqual([])
+})

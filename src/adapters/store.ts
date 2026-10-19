@@ -14,6 +14,15 @@ function isSessionEntry(v: unknown): v is SessionEntry {
   return o.v === 1 && typeof o.sessionId === 'string'
 }
 
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+// Enough of the shape for initSession and the reducers not to throw on a foreign value.
+function isPipeline(v: unknown): v is PipelineState {
+  if (!isObject(v) || !isObject(v.current) || !Array.isArray(v.cycles) || !isObject(v.plan)) return false
+  const { phase, history, badges } = v.current
+  return typeof phase === 'number' && Array.isArray(history) && Array.isArray(badges) && isObject(v.plan.pinned)
+}
+
 export function storePort($: EngineInterface): StatePort {
   return {
     async putSession(e) {
@@ -45,7 +54,7 @@ export function storePort($: EngineInterface): StatePort {
     },
     async getPipeline(id) {
       const v = await $.store.get(PIPELINE + id)
-      return typeof v === 'object' && v !== null ? (v as PipelineState) : undefined
+      return isPipeline(v) ? v : undefined
     },
     async putPipeline(id, p) {
       await $.store.set(PIPELINE + id, p)
