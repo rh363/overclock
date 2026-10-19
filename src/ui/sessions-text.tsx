@@ -1,6 +1,6 @@
 // Sessions tab for the terminal: a coloured tree of groups, sessions and agents.
 import { STATUS_SYMBOL } from './graph-text'
-import { groupHeader, sessionCard } from './view-model'
+import { groupHeader, kindColor, sessionCard } from './view-model'
 import type { SessionsView } from './view-model'
 
 export function SessionsText({ view, now, Box, Text }: { view: SessionsView; now: number; Box: any; Text: any }) {
@@ -10,7 +10,7 @@ export function SessionsText({ view, now, Box, Text }: { view: SessionsView; now
     <Box flexDirection="column">
       <Text dimColor>{view.summary}</Text>
       {view.groups.map((g) => {
-        const color = sessionCard(g.branches[0]!.sessions[0]!, g.kind, now).color
+        const color = kindColor(g.kind)
         return (
           <Box key={`g-${g.repoRoot ?? g.repoName}`} flexDirection="column" marginTop={1}>
             <Text color={color} bold>{groupHeader(g)}</Text>

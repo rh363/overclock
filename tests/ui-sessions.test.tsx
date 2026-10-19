@@ -21,10 +21,11 @@ const billing = (id: string, o: Partial<SessionEntry> = {}) =>
 
 // Four others; the own session (id s1, billing-api @ feat/invoices) is the fifth.
 const others = (): SessionEntry[] => [
+  // Idle session listed before the active one on the same branch.
+  entry({ sessionId: 'o3', worktreeRoot: '/wt3', branch: 'feat/a', lastActivity: NOW - 12 * MIN }),
   billing('7f3a', { recentWrites: [{ path: 'api/invoices.py', at: NOW - 3 * MIN }], agents: [agent({ id: 'x', type: 'implementer' })] }),
   entry({ sessionId: 'o1', worktreeRoot: '/overclock', branch: 'feat/a', planTotal: 12, planDone: 7, agents: [agent({ id: 'y', type: 'Plan' })] }),
   entry({ sessionId: 'o2', worktreeRoot: '/wt2', branch: 'feat/b', agents: [agent({ id: 'old', type: 'ghostagent', status: 'done', endedAt: NOW })] }),
-  entry({ sessionId: 'o3', worktreeRoot: '/wt3', branch: 'fix/idle', lastActivity: NOW - 12 * MIN }),
 ]
 
 test('sessionsView: riepilogo, ordine e agenti altrui', () => {
@@ -32,7 +33,7 @@ test('sessionsView: riepilogo, ordine e agenti altrui', () => {
   const v = sessionsView(self, others(), NOW, { input: 1000, output: 1000 })
   expect(v.summary).toBe('5 sessioni vive · 3 agenti attivi · 142k token oggi')
   const wt = v.groups.find((g) => g.repoName === 'overclock')!
-  expect(wt.branches.map((b) => b.sessions.map((s) => s.sessionId).join())).toEqual(['o1', 'o2', 'o3'])
+  expect(wt.branches.map((b) => b.sessions.map((s) => s.sessionId).join())).toEqual(['o1,o3', 'o2'])
   expect(v.warnings).toHaveLength(1)
 })
 

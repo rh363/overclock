@@ -25,19 +25,23 @@ const GREEN = '#2f7d5b'
 const BLUE = '#4a5fc1'
 export const ORANGE = '#c0642a'
 const GREY = '#888888'
+const KIND_COLOR: Record<SessionCase, string> = { A: GREEN, B: BLUE, C: ORANGE, none: GREY }
+
+/** Single source of the colour of a session case. */
+export const kindColor = (kind: SessionCase): string => KIND_COLOR[kind]
 
 export function caseStyle(self: SessionEntry, others: SessionEntry[]): CaseStyle {
   const c = classify(self, others)
   const branch = self.branch ?? '(detached)'
   switch (c.kind) {
     case 'A':
-      return { kind: 'A', symbol: '⎇', color: GREEN, label: `⎇ ${branch}` }
+      return { kind: 'A', symbol: '⎇', color: KIND_COLOR.A, label: `⎇ ${branch}` }
     case 'C':
-      return { kind: 'C', symbol: '⇄', color: ORANGE, label: `⇄ ${branch} ×${c.sameBranch + 1}` }
+      return { kind: 'C', symbol: '⇄', color: KIND_COLOR.C, label: `⇄ ${branch} ×${c.sameBranch + 1}` }
     case 'B':
-      return { kind: 'B', symbol: '▣', color: BLUE, label: `▣ ${self.repoName}` }
+      return { kind: 'B', symbol: '▣', color: KIND_COLOR.B, label: `▣ ${self.repoName}` }
     default:
-      return { kind: 'none', symbol: '', color: GREY, label: `▣ ${self.repoName}` }
+      return { kind: 'none', symbol: '', color: KIND_COLOR.none, label: `▣ ${self.repoName}` }
   }
 }
 
@@ -193,7 +197,7 @@ export type SessionCard = {
 }
 
 export function sessionCard(s: GroupedSession, kind: SessionCase, now: number): SessionCard {
-  const color = kind === 'A' ? GREEN : kind === 'B' ? BLUE : kind === 'C' ? ORANGE : GREY
+  const color = kindColor(kind)
   const parts = [s.phase > 0 ? `${PHASE_NAMES[s.phase - 1]} ${s.phase}/${PHASE_NAMES.length}` : '—']
   if (s.planTotal > 0) parts.push(`Piano ${s.planDone}/${s.planTotal}`)
   for (const b of s.badges) parts.push(`[${b}]`)
