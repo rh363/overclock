@@ -58,16 +58,51 @@ test('malformed session entries are ignored', async () => {
   expect(await storePort(fakeEngine(store)).listSessions(NOW)).toEqual([])
 })
 
-test('pipeline older than 30 days is pruned, recent and malformed are kept', async () => {
+test('prunePipelines: older than 30 days is pruned, recent and malformed are kept', async () => {
   const store = new Map<string, unknown>()
   const port = storePort(fakeEngine(store))
   await port.putPipeline('old', pipe(NOW - 31 * 24 * H))
   await port.putPipeline('new', pipe(NOW - 29 * 24 * H))
   store.set('pipeline:bad', 'oops')
-  await port.listSessions(NOW)
+  await port.prunePipelines(NOW)
   expect(await port.getPipeline('old')).toBeUndefined()
   expect(await port.getPipeline('new')).toBeDefined()
   expect(store.get('pipeline:bad')).toBe('oops')
+})
+
+test('prunePipelines: keeps at most the 100 most recent', async () => {
+  const store = new Map<string, unknown>()
+  const port = storePort(fakeEngine(store))
+  for (let i = 0; i < 105; i++) await port.putPipeline(`p${i}`, pipe(NOW - i * H))
+  await port.prunePipelines(NOW)
+  const left = [...store.keys()].filter((k) => k.startsWith('pipeline:'))
+  expect(left.length).toBe(100)
+  for (let i = 100; i < 105; i++) expect(store.has(`pipeline:p${i}`)).toBe(false)
+  expect(store.has('pipeline:p0')).toBe(true)
+  expect(store.has('pipeline:p99')).toBe(true)
+})
+
+test('prunePipelines: the kept id survives the cap', async () => {
+  const store = new Map<string, unknown>()
+  const port = storePort(fakeEngine(store))
+  for (let i = 0; i < 101; i++) await port.putPipeline(`p${i}`, pipe(NOW - i * H))
+  await port.prunePipelines(NOW, 'p100')
+  expect(store.has('pipeline:p100')).toBe(true)
+  expect(store.has('pipeline:p99')).toBe(false)
+})
+
+test('listSessions does not read pipeline keys', async () => {
+  const store = new Map<string, unknown>()
+  const $ = fakeEngine(store)
+  const read: string[] = []
+  const get = $.store.get
+  ;($.store as { get: (k: string) => Promise<unknown> }).get = async (k: string) => { read.push(k); return get(k) }
+  const port = storePort($)
+  await port.putSession(entry())
+  await port.putPipeline('s1', pipe(NOW - 31 * 24 * H))
+  expect(await port.listSessions(NOW)).toEqual([entry()])
+  expect(read).toEqual(['session:s1'])
+  expect(store.has('pipeline:s1')).toBe(true)
 })
 
 const git = (files: Fs, cwd: string) => resolveGitInfo(filePort(fakeEngine(new Map(), files)), cwd)

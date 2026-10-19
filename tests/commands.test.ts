@@ -146,6 +146,8 @@ test('phase e reset', async ($, on) => {
   expect(await run($, 'reset')).toBe('Pipeline azzerata.')
   expect(pipe(w).current.phase).toBe(0)
   expect(pipe(w).current.history).toEqual([])
+  // Empty now, but one was saved: the stored one is updated too.
+  expect((w.store.get('pipeline:s1') as PipelineState).current.phase).toBe(0)
 })
 
 test('errore di sintassi: restituisce il messaggio d uso', async ($, on) => {

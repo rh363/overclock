@@ -5,8 +5,10 @@ import { isStale } from '../core/sessions'
 
 const SESSION = 'session:'
 const PIPELINE = 'pipeline:'
-// session.end drops the session entry but keeps the pipeline for --resume; prune old ones here.
+// session.end drops the session entry but keeps the pipeline for --resume; prunePipelines
+// drops the old ones and caps how many are kept.
 const PIPELINE_MAX_AGE_MS = 30 * 86_400_000
+const PIPELINE_MAX_COUNT = 100
 
 function isSessionEntry(v: unknown): v is SessionEntry {
   if (typeof v !== 'object' || v === null) return false
@@ -43,14 +45,21 @@ export function storePort($: EngineInterface): StatePort {
           await $.store.delete(PIPELINE + key.slice(SESSION.length))
         } else out.push(v)
       }
-      for (const key of keys) {
-        if (!key.startsWith(PIPELINE)) continue
-        const v = (await $.store.get(key)) as { updatedAt?: unknown } | undefined | null
-        if (typeof v === 'object' && v !== null && typeof v.updatedAt === 'number' && now - v.updatedAt > PIPELINE_MAX_AGE_MS) {
-          await $.store.delete(key)
-        }
-      }
       return out
+    },
+    async prunePipelines(now, keepId) {
+      const kept: { key: string; updatedAt: number }[] = []
+      for (const key of await $.store.keys()) {
+        if (!key.startsWith(PIPELINE) || key === PIPELINE + keepId) continue
+        const v = await $.store.get(key)
+        // Malformed values are not ours to judge: leave them.
+        if (!isObject(v) || typeof v.updatedAt !== 'number') continue
+        if (now - v.updatedAt > PIPELINE_MAX_AGE_MS) await $.store.delete(key)
+        else kept.push({ key, updatedAt: v.updatedAt })
+      }
+      const cap = keepId === undefined ? PIPELINE_MAX_COUNT : PIPELINE_MAX_COUNT - 1
+      kept.sort((a, b) => b.updatedAt - a.updatedAt)
+      for (const { key } of kept.slice(cap)) await $.store.delete(key)
     },
     async getPipeline(id) {
       const v = await $.store.get(PIPELINE + id)

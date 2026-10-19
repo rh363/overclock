@@ -6,7 +6,7 @@ import { reduceAgents, emptyTree } from '../core/agents'
 import { parseCommand } from '../core/commands'
 import type { Tab } from '../core/commands'
 import { DEFAULT_PHASE_MAP, PHASE_NAMES, parsePhaseMap, skillKey } from '../core/phases'
-import { applySkill, emptyPipeline, resetPipeline, setPhase } from '../core/pipeline'
+import { applySkill, emptyPipeline, isEmptyPipeline, resetPipeline, setPhase } from '../core/pipeline'
 import { PLAN_DIR, SPEC_DIR, classifyDocPath, countCheckboxes, pickLatest } from '../core/plan'
 import { isLive, pruneWrites } from '../core/sessions'
 import { basename, joinPath, relativeTo } from '../core/paths'
@@ -97,9 +97,13 @@ async function publishSelf(
   if (self) await storePort($).putSession(self)
 }
 
+/** An empty pipeline is not persisted, unless it replaces one already stored. */
 async function savePipeline($: EngineInterface, p: PipelineState): Promise<void> {
   await update($, pipelineAtom, () => p)
-  await storePort($).putPipeline(await $.session.id(), p)
+  const id = await $.session.id()
+  const sp = storePort($)
+  if (isEmptyPipeline(p) && (await sp.getPipeline(id)) === undefined) return
+  await sp.putPipeline(id, p)
 }
 
 const absolute = (root: string, path: string) => (path.startsWith('/') ? path : joinPath(root, path))
@@ -170,8 +174,10 @@ export async function initSession($: EngineInterface): Promise<void> {
   const git = await resolveGitInfo(fp, cwd)
   const root = git?.worktreeRoot ?? cwd
   await loadPhaseMap($)
+  const sp = storePort($)
+  await sp.prunePipelines(now, id)
 
-  let p = (await storePort($).getPipeline(id)) ?? emptyPipeline(now)
+  let p = (await sp.getPipeline(id)) ?? emptyPipeline(now)
   p = await detectDocs($, fp, root, p)
   await savePipeline($, p)
 

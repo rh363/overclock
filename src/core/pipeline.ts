@@ -12,6 +12,15 @@ export function emptyPipeline(at: number): PipelineState {
 // Keeps the MAX_HISTORY most recent entries of a cycle's history.
 const capped = <T>(h: T[]): T[] => (h.length > MAX_HISTORY ? h.slice(-MAX_HISTORY) : h)
 
+/** Nothing worth persisting: no phase, history, badge, cycle, pin, spec or plan. */
+export function isEmptyPipeline(p: PipelineState): boolean {
+  const { current: c, plan } = p
+  return (
+    c.phase === 0 && c.history.length === 0 && c.badges.length === 0 && p.cycles.length === 0 &&
+    !plan.pinned.spec && !plan.pinned.plan && plan.specPath === undefined && plan.planPath === undefined
+  )
+}
+
 export function applySkill(p: PipelineState, key: string, map: PhaseMap, at: number): PipelineState {
   // Own keys only: 'constructor' or 'toString' are not skills.
   const entry = Object.hasOwn(map, key) ? map[key] : undefined

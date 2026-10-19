@@ -235,3 +235,23 @@ test('pipeline malformata nello store: initSession riparte da una vuota', async 
   expect((w.state.get('pipeline') as PipelineState).current.phase).toBe(0)
   expect(w.logs).toEqual([])
 })
+
+test('pipeline vuota: non viene salvata nello store', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  expect(w.store.has('pipeline:s1')).toBe(false)
+  expect(w.store.has('session:s1')).toBe(true)
+  await $.skill.prompt({ skill: 'writing-plans', text: '', pluginName: 'superpowers' })
+  expect(w.store.has('pipeline:s1')).toBe(true)
+})
+
+test('avvio: pota le pipeline vecchie una volta sola, non a ogni heartbeat', async ($, on) => {
+  const w = world(on)
+  const old = { current: { phase: 3, history: [], badges: [] }, cycles: [], plan: { pinned: { spec: false, plan: false }, done: 0, total: 0 } }
+  w.store.set('pipeline:old', { ...old, updatedAt: NOW - 31 * 86_400_000 })
+  await startSession($)
+  expect(w.store.has('pipeline:old')).toBe(false)
+  w.store.set('pipeline:old2', { ...old, updatedAt: NOW - 31 * 86_400_000 })
+  await w.clock.advance(15_000)
+  expect(w.store.has('pipeline:old2')).toBe(true)
+})

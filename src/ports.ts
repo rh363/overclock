@@ -8,6 +8,8 @@ export interface StatePort {
   getPipeline(id: string): Promise<PipelineState | undefined>
   putPipeline(id: string, p: PipelineState): Promise<void>
   deletePipeline(id: string): Promise<void>
+  /** Drops pipelines older than 30 days and keeps the 100 most recent; `keepId` is never dropped. */
+  prunePipelines(now: number, keepId?: string): Promise<void>
 }
 
 export interface FilePort {
