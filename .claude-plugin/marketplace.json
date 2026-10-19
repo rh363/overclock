@@ -1,0 +1,6 @@
+{
+  "name": "overclock",
+  "description": "Overclock: agenti, pipeline Superpowers, spec, piano e sessioni di Claude Code in un pannello fisso",
+  "owner": { "name": "Alex Massaroni" },
+  "plugins": [{ "name": "overclock", "source": "./" }]
+}

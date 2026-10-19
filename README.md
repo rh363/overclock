@@ -19,7 +19,23 @@ I tre casi di sessione, mostrati con colore e simbolo (leggibile anche senza col
 
 Il pannello si apre da solo solo con terminale di almeno 144 colonne.
 
-## Come si carica
+## Installazione
+
+Al prompt di una sessione nel terminale:
+
+```
+/plugin install overclock --marketplace rh363/overclock
+```
+
+Rispondi `y` per aggiungere il marketplace, poi scegli lo scope (user è il primo). Da shell:
+
+```bash
+claude plugin install overclock --marketplace rh363/overclock
+```
+
+Nell'app desktop, dove `/plugin` non funziona: clicca + accanto al box del prompt, poi Plugins, Add marketplace con `rh363/overclock`, poi Add plugin. Un mod installato dal terminale a livello user si carica anche nelle sessioni della tab Code.
+
+## Sviluppo locale
 
 Terminale:
 
