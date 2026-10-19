@@ -83,3 +83,12 @@ test('activeCount conta solo i running', async () => {
   t = reduceAgents(t, { kind: 'agent.ended', id: 'a', reason: 'answer', at: 3 })
   expect(activeCount(t)).toBe(1)
 })
+
+test('i token includono lettura e creazione della cache', async () => {
+  const u = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 1000, cache_creation_input_tokens: 100 }
+  let t = reduceAgents(emptyTree(), start('a'))
+  t = reduceAgents(t, { kind: 'agent.ended', id: 'a', reason: 'answer', usage: u, at: 5 })
+  expect(t.nodes[0]!.tokens).toEqual({ input: 1110, output: 5 })
+  t = reduceAgents(t, { kind: 'main.turn', usage: u })
+  expect(t.mainTokens).toEqual({ input: 1110, output: 5 })
+})

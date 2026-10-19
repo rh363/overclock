@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentNode, AgentStatus, AgentTree, Tokens, TurnReason } from './types'
+import type { AgentEvent, AgentNode, AgentStatus, AgentTree, Tokens, TurnReason, Usage } from './types'
 
 export const MAX_DONE_AGENTS = 50
 
@@ -17,9 +17,11 @@ const STATUS_BY_REASON: Record<TurnReason, AgentStatus> = {
   aborted: 'aborted',
 }
 
-function addUsage(t: Tokens, u?: { input_tokens: number; output_tokens: number }): Tokens {
+// input_tokens is only the uncached part: the cache reads and writes count as input too.
+function addUsage(t: Tokens, u?: Usage): Tokens {
   if (!u) return t
-  return { input: t.input + u.input_tokens, output: t.output + u.output_tokens }
+  const input = u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+  return { input: t.input + input, output: t.output + u.output_tokens }
 }
 
 // Keep every running node plus the MAX_DONE_AGENTS most recently ended ones,

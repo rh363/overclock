@@ -9,12 +9,14 @@ export interface AgentNode {
 }
 export interface AgentTree { nodes: AgentNode[]; mainTokens: Tokens }
 export type TurnReason = 'answer' | 'aborted' | 'refusal' | 'error'
+/** Token counts of a turn; the cache counts are optional and absent means 0. */
+export type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
 export type AgentEvent =
   | { kind: 'agent.started'; id: string; parentId?: string; toolUseId: string; type: string; description: string; background: boolean; at: number }
   | { kind: 'agent.resumed'; id: string; at: number }
-  | { kind: 'agent.ended'; id: string; reason: TurnReason; usage?: { input_tokens: number; output_tokens: number }; at: number }
+  | { kind: 'agent.ended'; id: string; reason: TurnReason; usage?: Usage; at: number }
   | { kind: 'agent.tool'; id: string; tool: string }
-  | { kind: 'main.turn'; usage?: { input_tokens: number; output_tokens: number } }
+  | { kind: 'main.turn'; usage?: Usage }
   | { kind: 'agents.reconcile'; liveIds: string[]; at: number }
 
 export type Phase = 0 | 1 | 2 | 3 | 4 | 5 | 6
