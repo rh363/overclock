@@ -33,8 +33,15 @@ test('agentGraphSvg: svg valido, escape e limite di dimensione', () => {
   expect(svg.startsWith('<svg')).toBe(true)
   expect(svg).toContain('&lt;b&gt; &amp; x')
   expect(svg).not.toContain('<b>')
-  const many = Array.from({ length: 200 }, (_, i) => node({ id: `n${i}`, description: 'x'.repeat(200), status: i < 5 ? 'running' : 'done' }))
-  expect(agentGraphSvg(agentsView(tree(many), NOW), 560).length).toBeLessThan(131072)
+  const many = Array.from({ length: 200 }, (_, i) => node({ id: `n${i}`, type: `ag${i}x`, description: 'x'.repeat(200), status: i < 5 ? 'running' : 'done' }))
+  const big = agentGraphSvg(agentsView(tree(many), NOW), 560)
+  expect(big.length).toBeLessThan(131072)
+  // main box + 5 running + the last 20 finished
+  expect(big.match(/<rect /g)!.length).toBe(1 + 5 + 20)
+  for (let i = 0; i < 5; i++) expect(big).toContain(`>ag${i}x<`)
+  for (let i = 180; i < 200; i++) expect(big).toContain(`>ag${i}x<`)
+  expect(big).not.toContain('>ag5x<')
+  expect(big).not.toContain('>ag179x<')
 })
 
 test('pipelineView: a fase 4 le prime tre sono done', () => {
@@ -49,11 +56,13 @@ test('pipelineView: a fase 4 le prime tre sono done', () => {
   expect(v.previousCycles).toBe(0)
 })
 
-function world(on: On, fills: string[]) {
+function world(on: On, fills: string[], o: { others?: unknown[]; plan?: boolean } = {}) {
   const store = new Map<string, unknown>()
-  const files: Record<string, string> = { [`${ROOT}/.git/HEAD`]: 'ref: refs/heads/main\n', [`${ROOT}/${PLAN}`]: '- [x] a\n- [ ] b\n' }
+  for (const e of o.others ?? []) store.set(`session:${(e as { sessionId: string }).sessionId}`, e)
+  const hasPlan = o.plan !== false
+  const files: Record<string, string> = { [`${ROOT}/.git/HEAD`]: 'ref: refs/heads/main\n', ...(hasPlan ? { [`${ROOT}/${PLAN}`]: '- [x] a\n- [ ] b\n' } : {}) }
   const dirs: Record<string, { name: string; kind: 'file' | 'dir'; mtimeMs: number }[]> = {
-    [`${ROOT}/.git`]: [], [`${ROOT}/docs/superpowers/plans`]: [{ name: 'p.md', kind: 'file', mtimeMs: 1 }],
+    [`${ROOT}/.git`]: [], ...(hasPlan ? { [`${ROOT}/docs/superpowers/plans`]: [{ name: 'p.md', kind: 'file', mtimeMs: 1 }] } : {}),
   }
   mock.clock(on, { now: NOW })
   on('store.get', (_$, e) => ({ value: store.get(e.key) }))
@@ -116,5 +125,47 @@ test('tab Pipeline: sei fasi', async ($, on) => {
   await ui.press({ key: 'tab-pipeline' })
   expect(await ui.find({ key: 'phase-1' })).toBeDefined()
   expect(await ui.find({ key: 'phase-6' })).toBeDefined()
+  await ui.unmount()
+})
+
+const other = {
+  v: 1, sessionId: 'o', repoRoot: ROOT, repoName: 'r', worktreeRoot: '/wt', branch: 'feat/other', agents: [], recentWrites: [],
+  phase: 5, badges: [], planDone: 0, planTotal: 0, lastActivity: NOW, heartbeat: NOW,
+}
+
+test('tab Agenti: blocco delle altre sessioni solo se ce ne sono', async ($, on) => {
+  world(on, [], { others: [other] })
+  let ui = await setup($, 'terminal')
+  expect(await ui.find({ type: 'Text', text: /feat\/other.*Code review 5\/6.*0 agenti/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('tab Agenti: senza altre sessioni il blocco manca', async ($, on) => {
+  world(on, [])
+  const ui = await setup($, 'terminal')
+  expect(await ui.find({ key: 'others' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('tab: pipeline, poi agenti e sessioni', async ($, on) => {
+  world(on, [], { others: [other] })
+  const ui = await setup($, 'terminal')
+  await ui.press({ key: 'tab-pipeline' })
+  expect(await ui.find({ key: 'phase-1' })).toBeDefined()
+  await ui.press({ key: 'tab-agents' })
+  expect(await ui.find({ key: 'phase-1' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /implementer/ })).toBeDefined()
+  await ui.press({ key: 'tab-sessions' })
+  expect(await ui.find({ type: 'Text', text: /implementer/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /feat\/other/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('tab Piano senza piano: messaggio esatto', async ($, on) => {
+  world(on, [], { plan: false })
+  const ui = await setup($, 'terminal')
+  await ui.press({ key: 'tab-plan' })
+  expect(await ui.find({ type: 'Text', text: 'Nessun piano trovato in docs/superpowers/plans/' })).toBeDefined()
+  expect(await ui.find({ key: 'open-plan' })).toBeUndefined()
   await ui.unmount()
 })

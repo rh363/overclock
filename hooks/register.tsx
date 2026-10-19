@@ -134,13 +134,17 @@ export const register: Register = (on, options) => {
     }
   })
 
-  on('ui.render', { component: 'Pane', requestId: 'overclock' }, async ($, e) => {
+  on('ui.render', { component: 'Pane', requestId: 'overclock' }, async ($, e, next) => {
     try {
       return await renderPane($, e)
     } catch (err) {
       logError($, err)
-      const { Text } = $.ui.resolve(e)
-      return <Text>Overclock: errore di disegno</Text>
+      try {
+        const { Text } = $.ui.resolve(e)
+        return <Text>Overclock: errore di disegno</Text>
+      } catch {
+        return next(e)
+      }
     }
   })
 }
