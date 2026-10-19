@@ -1,4 +1,4 @@
-{ "name": "overclock", "version": "0.1.0",
+{ "name": "overclock", "version": "0.1.0", "author": { "name": "Alex Massaroni" },
   "description": "Agenti, pipeline Superpowers, piano e sessioni in un pannello fisso",
   "types": "./types/index.d.ts",
   "userConfig": { "phaseMapPath": { "type": "string", "default": "", "title": "File mappa fasi", "description": "File JSON alternativo per la mappa skill → fase (vuoto = predefinita)" } } }
