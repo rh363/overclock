@@ -23,3 +23,11 @@ export interface PipelineCycle { phase: Phase; history: { phase: Phase; skill: s
 export interface PlanRef { specPath?: string; planPath?: string; pinned: { spec: boolean; plan: boolean }; done: number; total: number }
 export interface PipelineState { current: PipelineCycle; cycles: PipelineCycle[]; plan: PlanRef; updatedAt: number }
 export type PhaseMap = Record<string, { phase: Phase } | { badge: BadgeName }>
+
+export interface SessionEntry {
+  v: 1; sessionId: string; repoRoot: string | null; repoName: string; worktreeRoot: string
+  branch: string | null; agents: AgentNode[]; recentWrites: { path: string; at: number }[]
+  phase: Phase; badges: BadgeName[]; planDone: number; planTotal: number
+  lastActivity: number; heartbeat: number
+}
+export type SessionCase = 'A' | 'B' | 'C' | 'none'
