@@ -1,7 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 import {
-  carryOverOnClear, configure, dispatchAgent, endSession, initSession, logError, maybeAutoOpen, onSkill, onWrite,
-  refreshGit, takeClearedId,
+  carryOverOnClear, configure, dispatchAgent, endSession, handleCommand, initSession, logError, maybeAutoOpen, onPaneClosed, onSkill,
+  onWrite, refreshGit, takeClearedId,
 } from '../src/app/runtime'
 import { renderBand, renderSpinner } from '../src/ui/band'
 import { renderPane } from '../src/ui/pane'
@@ -113,6 +113,14 @@ export const register: Register = (on, options) => {
     const oldId = e.source === 'clear' ? takeClearedId() : undefined
     if (oldId !== undefined) await safe($, () => carryOverOnClear($, oldId))
     return r
+  }).catch(passThrough)
+
+  on('command.run', { command: 'overclock' }, async ($, e) => handleCommand($, e.args))
+
+  // Observe-only: keeps paneOpen true to the pane's actual state.
+  on('ui.close', async ($, e, next) => {
+    await safe($, () => onPaneClosed($, e.id))
+    return next(e)
   }).catch(passThrough)
 
   // A render failure of ours falls back to the engine's own band and spinner.

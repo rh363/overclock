@@ -36,6 +36,7 @@ declare module 'claude-code' {
       planText: string
       autoOpened: boolean
       toastShown: boolean
+      paneOpen: boolean
     }
   }
 }

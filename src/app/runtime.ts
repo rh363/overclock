@@ -3,8 +3,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Timer } from 'claude-code'
 import { reduceAgents, emptyTree } from '../core/agents'
-import { DEFAULT_PHASE_MAP, parsePhaseMap, skillKey } from '../core/phases'
-import { applySkill, emptyPipeline } from '../core/pipeline'
+import { parseCommand } from '../core/commands'
+import type { Tab } from '../core/commands'
+import { DEFAULT_PHASE_MAP, PHASE_NAMES, parsePhaseMap, skillKey } from '../core/phases'
+import { applySkill, emptyPipeline, resetPipeline, setPhase } from '../core/pipeline'
 import { PLAN_DIR, SPEC_DIR, classifyDocPath, countCheckboxes, pickLatest } from '../core/plan'
 import { isLive, pruneWrites } from '../core/sessions'
 import { basename, joinPath, relativeTo } from '../core/paths'
@@ -22,6 +24,8 @@ const othersAtom = atom({ plugin: 'overclock', key: 'others' } as const, [])
 const planTextAtom = atom({ plugin: 'overclock', key: 'planText' } as const, '')
 const autoOpenedAtom = atom({ plugin: 'overclock', key: 'autoOpened' } as const, false)
 const toastShownAtom = atom({ plugin: 'overclock', key: 'toastShown' } as const, false)
+const paneOpenAtom = atom({ plugin: 'overclock', key: 'paneOpen' } as const, false)
+const tabAtom = atom({ plugin: 'overclock', key: 'tab' } as const, 'agents')
 
 export const HEARTBEAT_MS = 15_000
 const PANE = { id: 'overclock', title: 'Overclock' }
@@ -258,6 +262,7 @@ export async function maybeAutoOpen($: EngineInterface): Promise<void> {
   if (await read($, autoOpenedAtom)) return
   await update($, autoOpenedAtom, () => true)
   const r = await $.ui.open(PANE)
+  if (r.isPlaced) await update($, paneOpenAtom, () => true)
   if (!r.isPlaced && !(await read($, toastShownAtom))) {
     $.ui.toast(TOAST)
     await update($, toastShownAtom, () => true)
@@ -287,4 +292,90 @@ export async function carryOverOnClear($: EngineInterface, oldId: string): Promi
   await update($, agentsAtom, () => emptyTree())
   await update($, selfAtom, () => null)
   await initSession($)
+}
+
+/** ui.close of our pane (by Esc, the close mark or /overclock): remembers it is closed. */
+export async function onPaneClosed($: EngineInterface, id: string): Promise<void> {
+  if (id === PANE.id) await update($, paneOpenAtom, () => false)
+}
+
+async function openPane($: EngineInterface): Promise<boolean> {
+  const r = await $.ui.open({ ...PANE, focus: true })
+  if (r.isPlaced) await update($, paneOpenAtom, () => true)
+  return r.isPlaced
+}
+
+const PIN_LABEL = { spec: 'Spec', plan: 'Piano' } as const
+
+async function pinDoc($: EngineInterface, target: 'spec' | 'plan', path: string): Promise<string> {
+  const self = await ensureInit($)
+  const root = self.worktreeRoot
+  const rel = path.startsWith('/') ? relativeTo(root, path) : path.replace(/^\.\//, '')
+  if (rel === null || rel === '' || rel.split('/').includes('..') || !(await filePort($).exists(joinPath(root, rel)))) {
+    return `File non trovato: ${path}`
+  }
+  const p = (await read($, pipelineAtom)) ?? emptyPipeline(await $.clock.now())
+  const plan = { ...p.plan, pinned: { ...p.plan.pinned, [target]: true } }
+  if (target === 'spec') plan.specPath = rel
+  else plan.planPath = rel
+  const next = await loadPlan($, filePort($), root, { ...p, plan, updatedAt: await $.clock.now() })
+  await savePipeline($, next)
+  await publishSelf($)
+  return `${PIN_LABEL[target]} fissato: ${rel}`
+}
+
+async function runCommand($: EngineInterface, args: string): Promise<string> {
+  const cmd = parseCommand(args)
+  switch (cmd.kind) {
+    case 'error':
+      return cmd.message
+    case 'toggle':
+      if (await read($, paneOpenAtom)) {
+        await $.ui.close(PANE)
+        await update($, paneOpenAtom, () => false)
+        return 'Pannello chiuso.'
+      }
+      await openPane($)
+      return 'Pannello aperto.'
+    case 'open':
+      await update($, tabAtom, () => cmd.tab as Tab)
+      await openPane($)
+      return `Pannello aperto su ${cmd.tab}.`
+    case 'pin':
+      return pinDoc($, cmd.target, cmd.path)
+    case 'unpin': {
+      const self = await ensureInit($)
+      const p = (await read($, pipelineAtom)) ?? emptyPipeline(await $.clock.now())
+      const cleared = { ...p, plan: { ...p.plan, pinned: { spec: false, plan: false } } }
+      await savePipeline($, await detectDocs($, filePort($), self.worktreeRoot, cleared))
+      await publishSelf($)
+      return 'Rilevamento automatico ripristinato.'
+    }
+    case 'phase': {
+      await ensureInit($)
+      const now = await $.clock.now()
+      const p = (await read($, pipelineAtom)) ?? emptyPipeline(now)
+      await savePipeline($, setPhase(p, cmd.phase, now))
+      await publishSelf($, undefined, { activity: true })
+      return `Fase impostata a ${cmd.phase} (${cmd.phase === 0 ? 'nessuna fase' : PHASE_NAMES[cmd.phase - 1]}).`
+    }
+    case 'reset': {
+      await ensureInit($)
+      const now = await $.clock.now()
+      const p = (await read($, pipelineAtom)) ?? emptyPipeline(now)
+      await savePipeline($, resetPipeline(p, now))
+      await publishSelf($, undefined, { activity: true })
+      return 'Pipeline azzerata.'
+    }
+  }
+}
+
+/** /overclock: never throws, so a failure cannot break the command chain. */
+export async function handleCommand($: EngineInterface, args: string): Promise<{ text: string }> {
+  try {
+    return { text: await runCommand($, args) }
+  } catch (err) {
+    logError($, err)
+    return { text: 'Overclock: errore nel comando' }
+  }
 }
