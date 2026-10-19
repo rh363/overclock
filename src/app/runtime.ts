@@ -414,3 +414,32 @@ export async function handleCommand($: EngineInterface, args: string): Promise<{
     return { text: 'Overclock: errore nel comando' }
   }
 }
+
+// The render gets `next` only: the host does not let `$` be passed to a function parameter.
+type Render<E, R> = (next: (e: E) => Promise<R>) => Promise<R>
+
+/**
+ * Runs a render of ours that calls `next` at most once. A failure of ours falls back to what
+ * the engine drew (`next` is not called twice); a failure of `next` itself is not ours to hide.
+ */
+export async function guardRender<E, R>($: EngineInterface, e: E, next: (e: E) => Promise<R>, render: Render<E, R>): Promise<R> {
+  let below: { value: R } | undefined
+  let nextFailed = false
+  const once = async (x: E): Promise<R> => {
+    try {
+      const value = await next(x)
+      below = { value }
+      return value
+    } catch (err) {
+      nextFailed = true
+      throw err
+    }
+  }
+  try {
+    return await render(once)
+  } catch (err) {
+    if (nextFailed) throw err
+    logError($, err)
+    return below ? below.value : next(e)
+  }
+}
