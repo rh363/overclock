@@ -22,7 +22,7 @@ export type BandView = {
 
 const GREEN = '#2f7d5b'
 const BLUE = '#4a5fc1'
-const ORANGE = '#c0642a'
+export const ORANGE = '#c0642a'
 const GREY = '#888888'
 
 export function caseStyle(self: SessionEntry, others: SessionEntry[]): CaseStyle {
