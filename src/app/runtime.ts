@@ -1,0 +1,260 @@
+// Inbound adapter: turns engine events into core reductions, then publishes the result to
+// $.state (what the UI reads) and $.store (what other sessions read).
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, PluginOptions, Timer } from 'claude-code'
+import { reduceAgents, emptyTree } from '../core/agents'
+import { DEFAULT_PHASE_MAP, parsePhaseMap, skillKey } from '../core/phases'
+import { applySkill, emptyPipeline } from '../core/pipeline'
+import { PLAN_DIR, SPEC_DIR, classifyDocPath, countCheckboxes, pickLatest } from '../core/plan'
+import { isLive, pruneWrites } from '../core/sessions'
+import { basename, joinPath, relativeTo } from '../core/paths'
+import type { AgentEvent, BadgeName, PhaseMap, PipelineState, SessionEntry } from '../core/types'
+import type { FilePort } from '../ports'
+import { storePort } from '../adapters/store'
+import { filePort, resolveGitInfo } from '../adapters/files'
+
+// The host's module scan only accepts state sources declared in the calling file, so these
+// mirror src/adapters/atoms.ts (same keys, same initial values).
+const agentsAtom = atom({ plugin: 'overclock', key: 'agents' } as const, emptyTree())
+const pipelineAtom = atom({ plugin: 'overclock', key: 'pipeline' } as const, null)
+const selfAtom = atom({ plugin: 'overclock', key: 'self' } as const, null)
+const othersAtom = atom({ plugin: 'overclock', key: 'others' } as const, [])
+const planTextAtom = atom({ plugin: 'overclock', key: 'planText' } as const, '')
+const autoOpenedAtom = atom({ plugin: 'overclock', key: 'autoOpened' } as const, false)
+const toastShownAtom = atom({ plugin: 'overclock', key: 'toastShown' } as const, false)
+
+export const HEARTBEAT_MS = 15_000
+const PANE = { id: 'overclock', title: 'Overclock' }
+const TOAST = 'Overclock: /overclock per aprire il pannello'
+// AgentInfo statuses of a loop that has ended.
+const ENDED = new Set(['completed', 'failed', 'killed'])
+
+// Module variables hold only what may be lost on hot reload: options, caches, the timer.
+let phaseMapPath = ''
+let phaseMap: PhaseMap | undefined
+let timer: Timer | undefined
+
+/** Called by register() on every (re)load with the plugin's options. */
+export function configure(options: PluginOptions): void {
+  const p = options.phaseMapPath
+  phaseMapPath = typeof p === 'string' ? p.trim() : ''
+  phaseMap = undefined
+}
+
+async function loadPhaseMap($: EngineInterface): Promise<PhaseMap> {
+  if (phaseMap) return phaseMap
+  if (phaseMapPath === '') return (phaseMap = DEFAULT_PHASE_MAP)
+  const path = phaseMapPath.startsWith('/') ? phaseMapPath : joinPath(await $.session.cwd(), phaseMapPath)
+  const text = await filePort($).read(path)
+  const parsed = text === undefined ? null : parsePhaseMap(text)
+  if (parsed === null) {
+    $.ui.log(`overclock: mappa fasi non valida in ${path}, uso quella predefinita`)
+    return (phaseMap = DEFAULT_PHASE_MAP)
+  }
+  return (phaseMap = { ...DEFAULT_PHASE_MAP, ...parsed })
+}
+
+function summary(p: PipelineState | null) {
+  const badges: BadgeName[] = []
+  for (const b of p?.current.badges ?? []) if (!badges.includes(b.name)) badges.push(b.name)
+  return { phase: p?.current.phase ?? 0, badges, planDone: p?.plan.done ?? 0, planTotal: p?.plan.total ?? 0 }
+}
+
+/** Recomputes self from the atoms (plus `change`), stamps the heartbeat and persists it. */
+async function publishSelf(
+  $: EngineInterface,
+  change: (s: SessionEntry) => SessionEntry = (s) => s,
+  opts: { activity?: boolean } = {},
+): Promise<void> {
+  const now = await $.clock.now()
+  const tree = await read($, agentsAtom)
+  const p = await read($, pipelineAtom)
+  const self = await update($, selfAtom, (cur) => {
+    if (!cur) return cur
+    const s = change(cur)
+    return {
+      ...s,
+      ...summary(p),
+      agents: tree.nodes,
+      recentWrites: pruneWrites(s.recentWrites, now),
+      lastActivity: opts.activity ? now : s.lastActivity,
+      heartbeat: now,
+    }
+  })
+  if (self) await storePort($).putSession(self)
+}
+
+async function savePipeline($: EngineInterface, p: PipelineState): Promise<void> {
+  await update($, pipelineAtom, () => p)
+  await storePort($).putPipeline(await $.session.id(), p)
+}
+
+const absolute = (root: string, path: string) => (path.startsWith('/') ? path : joinPath(root, path))
+
+/** Reads the plan file into planText and its checkbox counts into the PlanRef. */
+async function loadPlan($: EngineInterface, fp: FilePort, root: string, p: PipelineState): Promise<PipelineState> {
+  const text = p.plan.planPath ? await fp.read(absolute(root, p.plan.planPath)) : undefined
+  await update($, planTextAtom, () => text ?? '')
+  if (text === undefined) return p
+  const { done, total } = countCheckboxes(text)
+  return { ...p, plan: { ...p.plan, done, total } }
+}
+
+/** Latest spec and plan under `root`, unless pinned; then the plan's progress. */
+async function detectDocs($: EngineInterface, fp: FilePort, root: string, p: PipelineState): Promise<PipelineState> {
+  const plan = { ...p.plan }
+  if (!plan.pinned.spec) {
+    const name = pickLatest(await fp.list(joinPath(root, SPEC_DIR)))
+    if (name) plan.specPath = `${SPEC_DIR}/${name}`
+  }
+  if (!plan.pinned.plan) {
+    const name = pickLatest(await fp.list(joinPath(root, PLAN_DIR)))
+    if (name) plan.planPath = `${PLAN_DIR}/${name}`
+  }
+  return loadPlan($, fp, root, { ...p, plan })
+}
+
+async function ensureInit($: EngineInterface): Promise<SessionEntry> {
+  const self = await read($, selfAtom)
+  if (self) return self
+  await initSession($)
+  return (await read($, selfAtom))!
+}
+
+function startHeartbeat($: EngineInterface): void {
+  timer?.cancel()
+  timer = $.clock.every(HEARTBEAT_MS, () => {
+    void heartbeat($).catch(() => {})
+  })
+}
+
+export function stopHeartbeat(): void {
+  timer?.cancel()
+  timer = undefined
+}
+
+export async function initSession($: EngineInterface): Promise<void> {
+  const id = await $.session.id()
+  const cwd = await $.session.cwd()
+  const now = await $.clock.now()
+  const fp = filePort($)
+  const git = await resolveGitInfo(fp, cwd)
+  const root = git?.worktreeRoot ?? cwd
+  await loadPhaseMap($)
+
+  let p = (await storePort($).getPipeline(id)) ?? emptyPipeline(now)
+  p = await detectDocs($, fp, root, p)
+  await savePipeline($, p)
+
+  const self: SessionEntry = {
+    v: 1, sessionId: id,
+    repoRoot: git?.repoRoot ?? null,
+    repoName: basename(git?.repoRoot ?? root),
+    worktreeRoot: root,
+    branch: git?.branch ?? null,
+    agents: [], recentWrites: [], ...summary(p),
+    lastActivity: now, heartbeat: now,
+  }
+  await update($, selfAtom, () => self)
+  await heartbeat($)
+  startHeartbeat($)
+}
+
+export async function dispatchAgent($: EngineInterface, ev: AgentEvent): Promise<void> {
+  await ensureInit($)
+  await update($, agentsAtom, (t) => reduceAgents(t, ev))
+  await publishSelf($, undefined, { activity: ev.kind !== 'agents.reconcile' })
+}
+
+export async function onSkill($: EngineInterface, skill: string, pluginName?: string): Promise<void> {
+  await ensureInit($)
+  const now = await $.clock.now()
+  const map = await loadPhaseMap($)
+  const before = (await read($, pipelineAtom)) ?? emptyPipeline(now)
+  const after = applySkill(before, skillKey(skill, pluginName), map, now)
+  if (after === before) return
+  await savePipeline($, after)
+  await publishSelf($, undefined, { activity: true })
+  if (after.current.phase !== before.current.phase) await maybeAutoOpen($)
+}
+
+export async function onWrite($: EngineInterface, absPath: string): Promise<void> {
+  const self = await ensureInit($)
+  const now = await $.clock.now()
+  const root = self.worktreeRoot
+  const rel = relativeTo(root, absPath)
+  const path = rel ?? absPath
+  const kind = rel === null ? null : classifyDocPath(rel)
+  const p = await read($, pipelineAtom)
+  if (kind && p) {
+    const plan = { ...p.plan }
+    if (kind === 'spec' && !plan.pinned.spec) plan.specPath = path
+    if (kind === 'plan' && !plan.pinned.plan) plan.planPath = path
+    let next: PipelineState = { ...p, plan, updatedAt: now }
+    if (kind === 'plan' && plan.planPath === path) next = await loadPlan($, filePort($), root, next)
+    await savePipeline($, next)
+  }
+  await publishSelf(
+    $,
+    (s) => ({ ...s, recentWrites: [...s.recentWrites.filter((w) => w.path !== path), { path, at: now }] }),
+    { activity: true },
+  )
+}
+
+export async function refreshGit($: EngineInterface): Promise<void> {
+  const self = await ensureInit($)
+  const cwd = await $.session.cwd()
+  const fp = filePort($)
+  const git = await resolveGitInfo(fp, cwd)
+  const root = git?.worktreeRoot ?? cwd
+  const repoRoot = git?.repoRoot ?? null
+  const branch = git?.branch ?? null
+  if (root === self.worktreeRoot && repoRoot === self.repoRoot && branch === self.branch) return
+  if (root !== self.worktreeRoot) {
+    const p = await read($, pipelineAtom)
+    if (p) await savePipeline($, await detectDocs($, fp, root, p))
+  }
+  await publishSelf($, (s) => ({ ...s, repoRoot, repoName: basename(repoRoot ?? root), worktreeRoot: root, branch }))
+}
+
+export async function heartbeat($: EngineInterface): Promise<void> {
+  const self = await ensureInit($)
+  const now = await $.clock.now()
+  const live = await $.agent.list()
+  const liveIds = live.filter((a) => !ENDED.has(a.status)).map((a) => a.id)
+  await update($, agentsAtom, (t) => reduceAgents(t, { kind: 'agents.reconcile', liveIds, at: now }))
+  const all = await storePort($).listSessions(now)
+  const others = all.filter((e) => e.sessionId !== self.sessionId && isLive(e, now))
+  await update($, othersAtom, () => others)
+  await publishSelf($)
+}
+
+export async function maybeAutoOpen($: EngineInterface): Promise<void> {
+  if (await read($, autoOpenedAtom)) return
+  await update($, autoOpenedAtom, () => true)
+  const r = await $.ui.open(PANE)
+  if (!r.isPlaced && !(await read($, toastShownAtom))) {
+    $.ui.toast(TOAST)
+    await update($, toastShownAtom, () => true)
+  }
+}
+
+/** session.end: drop this session's entry and stop the heartbeat that would rewrite it. */
+export async function endSession($: EngineInterface, id: string): Promise<void> {
+  stopHeartbeat()
+  await storePort($).deleteSession(id)
+}
+
+/** After /clear: move the pipeline to the new session id, reset agents, re-init. */
+export async function carryOverOnClear($: EngineInterface, oldId: string): Promise<void> {
+  const newId = await $.session.id()
+  const sp = storePort($)
+  if (newId !== oldId) {
+    const p = await sp.getPipeline(oldId)
+    if (p) await sp.putPipeline(newId, p)
+    await sp.deletePipeline(oldId)
+  }
+  await update($, agentsAtom, () => emptyTree())
+  await update($, selfAtom, () => null)
+  await initSession($)
+}
