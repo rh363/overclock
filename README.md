@@ -49,7 +49,7 @@ Desktop: imposta `CLAUDE_CODE_PLUGIN_DIRS` nel blocco `env` di `~/.claude/settin
 
 ## Superficie d'accesso
 
-Usa: `$.fs.read/list/stat/exists`, `$.store`, `$.state`, `$.ui`, `$.command`, `$.prompt.fill`, `$.session`, `$.agent.list`, `$.clock`.
+Usa: `$.fs.read/list/exists`, `$.store`, `$.state`, `$.ui`, `$.command`, `$.prompt.fill`, `$.session`, `$.agent.list`, `$.clock`.
 Non usa: `$.http`, `$.process`, `$.env`, `$.model`, `$.fs.write`, `tool.check`.
 
 ## Aggiungere una skill alla mappa delle fasi
