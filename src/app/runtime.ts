@@ -251,6 +251,17 @@ export async function onSkill($: EngineInterface, skill: string, pluginName?: st
   if (after.current.phase !== before.current.phase) await maybeAutoOpen($)
 }
 
+// Tools that write a file, by the argument naming it. MultiEdit is not in every build's tool
+// table, so the name is matched as a string.
+const WRITE_ARG: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' }
+
+/** The file a tool call writes, if it is a write tool's call with that path given. */
+export function writtenPath(call: { tool: string } & Record<string, unknown>): string | undefined {
+  const arg = Object.hasOwn(WRITE_ARG, call.tool) ? WRITE_ARG[call.tool] : undefined
+  const path = arg === undefined ? undefined : call[arg]
+  return typeof path === 'string' ? path : undefined
+}
+
 export async function onWrite($: EngineInterface, absPath: string): Promise<void> {
   const self = await ensureInit($)
   const now = await $.clock.now()

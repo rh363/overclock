@@ -357,3 +357,17 @@ test('teammate: resta vivo dopo un turno finché il roster lo elenca', async ($,
   await w.clock.advance(15_000)
   expect(agents(w).nodes[0]?.status).toBe('done')
 })
+
+test('MultiEdit e NotebookEdit contano come scritture, anche per spec e piano', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  w.files[`${ROOT}/docs/superpowers/plans/p.md`] = '- [x] a\n- [ ] b'
+  await $.tool.call({ tool: 'MultiEdit', file_path: `${ROOT}/docs/superpowers/plans/p.md`, edits: [] } as never)
+  await w.clock.advance(1_000)
+  await $.tool.call({ tool: 'NotebookEdit', notebook_path: `${ROOT}/n.ipynb`, new_source: 'x' } as never)
+  expect((w.state.get('pipeline') as PipelineState).plan.planPath).toBe('docs/superpowers/plans/p.md')
+  expect((w.store.get('session:s1') as SessionEntry).recentWrites).toEqual([
+    { path: 'docs/superpowers/plans/p.md', at: NOW },
+    { path: 'n.ipynb', at: NOW + 1_000 },
+  ])
+})

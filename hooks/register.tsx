@@ -1,7 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 import {
   carryOverOnClear, configure, dispatchAgent, endSession, guardRender, handleCommand, initSession, logError, maybeAutoOpen, onPaneClosed,
-  inSubagentSkill, onSessionResumed, onSkill, onToolCall, onWrite, refreshGit, takeClearedId,
+  inSubagentSkill, onSessionResumed, onSkill, onToolCall, onWrite, refreshGit, takeClearedId, writtenPath,
 } from '../src/app/runtime'
 import { renderBand, renderSpinner } from '../src/ui/band'
 import { renderPane } from '../src/ui/pane'
@@ -85,9 +85,8 @@ export const register: Register = (on, options) => {
     await safe($, async () => {
       await onToolCall($, e.agentId, e.tool)
       const ok = r.deny === undefined && !r.isError
-      if ((e.tool === 'Write' || e.tool === 'Edit') && ok && typeof e.file_path === 'string') {
-        await onWrite($, e.file_path)
-      }
+      const written = ok ? writtenPath(e) : undefined
+      if (written !== undefined) await onWrite($, written)
       const moved =
         (e.tool === 'Bash' && typeof e.command === 'string' && GIT_MOVE.test(e.command)) ||
         e.tool === 'EnterWorktree' ||
